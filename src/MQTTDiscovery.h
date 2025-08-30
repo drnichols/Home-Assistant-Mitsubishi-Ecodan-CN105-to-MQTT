@@ -1,5 +1,8 @@
 //-- MQTT Home Assistant Auto Discovery --//
 
+#ifndef MQTT_DISCOVERY_H
+#define MQTT_DISCOVERY_H
+
 const int discovery_topics PROGMEM = 116;
 
 // Build the sensor JSON structure
@@ -852,3 +855,5 @@ const char MQTT_DEVICE_CLASS[][17] PROGMEM = {  // Uses same structure as Units 
   "duration",
   "energy"
 };
+#
+#endif // MQTT_DISCOVERY_H

@@ -1,4 +1,57 @@
-String MQTT_BASETOPIC = "Ecodan/ASHP";
+#include "Debug.h"
+#include "WString.h"
+#include <ArduinoJson.h>
+#include "MQTTDiscovery.h"
+#include <ESPTelnet.h>
+#if defined(ESP32)
+#include "FS.h"
+#include "SPIFFS.h"
+#define LittleFS SPIFFS
+#elif defined(ESP8266)
+#include <LittleFS.h>
+#endif
+#include <WiFi.h>
+#include <WiFiManager.h>
+
+// Forward declarations for configuration structs (defined in main.cpp)
+struct ESPTelnet;
+struct MqttSettings;
+struct UnitSettings;
+struct WiFiManagerParameter;
+struct WiFiManager;
+
+extern ESPTelnet TelnetServer;
+extern MqttSettings mqttSettings;
+extern UnitSettings unitSettings;
+extern bool shouldSaveConfig;
+
+// WiFiManager parameter declarations
+extern WiFiManagerParameter custom_mqtt_server;
+extern WiFiManagerParameter custom_mqtt_user;
+extern WiFiManagerParameter custom_mqtt_pass;
+extern WiFiManagerParameter custom_mqtt_port;
+extern WiFiManagerParameter custom_mqtt_basetopic;
+extern WiFiManagerParameter custom_mqtt2_server;
+extern WiFiManagerParameter custom_mqtt2_user;
+extern WiFiManagerParameter custom_mqtt2_pass;
+extern WiFiManagerParameter custom_mqtt2_port;
+extern WiFiManagerParameter custom_mqtt2_basetopic;
+extern WiFiManagerParameter custom_cascade_enabled;
+extern WiFiManagerParameter custom_cascade_node_id;
+extern WiFiManagerParameter custom_device_id;
+
+// Other external variables
+extern WiFiManager wifiManager;
+
+// Constants
+extern const int deviceId_max_length;
+extern const int hostname_max_length;
+extern const int user_max_length;
+extern const int password_max_length;
+extern const int port_max_length;
+extern const int basetopic_max_length;
+
+String MQTT_BASETOPIC = "Ecodan/TEST/ASHP";
 
 String MQTT_LWT = MQTT_BASETOPIC + "/LWT";
 String MQTT_STATUS = MQTT_BASETOPIC + "/Status";
@@ -21,21 +74,28 @@ String MQTT_COMMAND_HOTWATER = MQTT_COMMAND + "/HotWater";
 String MQTT_COMMAND_SYSTEM = MQTT_COMMAND + "/System";
 
 String MQTT_COMMAND_ZONE1_FLOW_SETPOINT = MQTT_COMMAND_ZONE1 + "/FlowSetpoint";
-String MQTT_COMMAND_ZONE1_NOMODE_SETPOINT = MQTT_COMMAND_ZONE1 + "/ThermostatSetpoint";
-String MQTT_COMMAND_ZONE1_HEAT_PROHIBIT = MQTT_COMMAND_ZONE1 + "/ProhibitHeating";
-String MQTT_COMMAND_ZONE1_COOL_PROHIBIT = MQTT_COMMAND_ZONE1 + "/ProhibitCooling";
+String MQTT_COMMAND_ZONE1_NOMODE_SETPOINT =
+    MQTT_COMMAND_ZONE1 + "/ThermostatSetpoint";
+String MQTT_COMMAND_ZONE1_HEAT_PROHIBIT =
+    MQTT_COMMAND_ZONE1 + "/ProhibitHeating";
+String MQTT_COMMAND_ZONE1_COOL_PROHIBIT =
+    MQTT_COMMAND_ZONE1 + "/ProhibitCooling";
 String MQTT_COMMAND_ZONE1_HEATINGMODE = MQTT_COMMAND_ZONE1 + "/HeatingMode";
 
 String MQTT_COMMAND_ZONE2_FLOW_SETPOINT = MQTT_COMMAND_ZONE2 + "/FlowSetpoint";
-String MQTT_COMMAND_ZONE2_NOMODE_SETPOINT = MQTT_COMMAND_ZONE2 + "/ThermostatSetpoint";
-String MQTT_COMMAND_ZONE2_HEAT_PROHIBIT = MQTT_COMMAND_ZONE2 + "/ProhibitHeating";
-String MQTT_COMMAND_ZONE2_COOL_PROHIBIT = MQTT_COMMAND_ZONE2 + "/ProhibitCooling";
+String MQTT_COMMAND_ZONE2_NOMODE_SETPOINT =
+    MQTT_COMMAND_ZONE2 + "/ThermostatSetpoint";
+String MQTT_COMMAND_ZONE2_HEAT_PROHIBIT =
+    MQTT_COMMAND_ZONE2 + "/ProhibitHeating";
+String MQTT_COMMAND_ZONE2_COOL_PROHIBIT =
+    MQTT_COMMAND_ZONE2 + "/ProhibitCooling";
 String MQTT_COMMAND_ZONE2_HEATINGMODE = MQTT_COMMAND_ZONE2 + "/HeatingMode";
 
 String MQTT_COMMAND_HOTWATER_MODE = MQTT_COMMAND_HOTWATER + "/Mode";
 String MQTT_COMMAND_HOTWATER_SETPOINT = MQTT_COMMAND_HOTWATER + "/Setpoint";
 String MQTT_COMMAND_HOTWATER_BOOST = MQTT_COMMAND_HOTWATER + "/Boost";
-String MQTT_COMMAND_HOTWATER_NORM_BOOST = MQTT_COMMAND_HOTWATER + "/NormalBoost";
+String MQTT_COMMAND_HOTWATER_NORM_BOOST =
+    MQTT_COMMAND_HOTWATER + "/NormalBoost";
 String MQTT_COMMAND_HOTWATER_PROHIBIT = MQTT_COMMAND_HOTWATER + "/Prohibit";
 
 String MQTT_COMMAND_SYSTEM_HOLIDAYMODE = MQTT_COMMAND_SYSTEM + "/HolidayMode";
@@ -72,7 +132,6 @@ String MQTTCommandSystemGlycol = MQTT_COMMAND_SYSTEM_GLYCOL;
 String MQTTCommandSystemService = MQTT_COMMAND_SYSTEM_SERVICE;
 String MQTTCommandSystemCompCurve = MQTT_COMMAND_SYSTEM_COMPCURVE;
 
-
 String MQTT_2_BASETOPIC = "00000";
 
 String MQTT_2_LWT = MQTT_2_BASETOPIC + "/LWT";
@@ -95,26 +154,37 @@ String MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
 String MQTT_2_COMMAND_HOTWATER = MQTT_2_COMMAND + "/HotWater";
 String MQTT_2_COMMAND_SYSTEM = MQTT_2_COMMAND + "/System";
 
-String MQTT_2_COMMAND_ZONE1_FLOW_SETPOINT = MQTT_2_COMMAND_ZONE1 + "/FlowSetpoint";
-String MQTT_2_COMMAND_ZONE1_NOMODE_SETPOINT = MQTT_2_COMMAND_ZONE1 + "/ThermostatSetpoint";
-String MQTT_2_COMMAND_ZONE1_HEAT_PROHIBIT = MQTT_2_COMMAND_ZONE1 + "/ProhibitHeating";
-String MQTT_2_COMMAND_ZONE1_COOL_PROHIBIT = MQTT_2_COMMAND_ZONE1 + "/ProhibitCooling";
+String MQTT_2_COMMAND_ZONE1_FLOW_SETPOINT =
+    MQTT_2_COMMAND_ZONE1 + "/FlowSetpoint";
+String MQTT_2_COMMAND_ZONE1_NOMODE_SETPOINT =
+    MQTT_2_COMMAND_ZONE1 + "/ThermostatSetpoint";
+String MQTT_2_COMMAND_ZONE1_HEAT_PROHIBIT =
+    MQTT_2_COMMAND_ZONE1 + "/ProhibitHeating";
+String MQTT_2_COMMAND_ZONE1_COOL_PROHIBIT =
+    MQTT_2_COMMAND_ZONE1 + "/ProhibitCooling";
 String MQTT_2_COMMAND_ZONE1_HEATINGMODE = MQTT_2_COMMAND_ZONE1 + "/HeatingMode";
 
-String MQTT_2_COMMAND_ZONE2_FLOW_SETPOINT = MQTT_2_COMMAND_ZONE2 + "/FlowSetpoint";
-String MQTT_2_COMMAND_ZONE2_NOMODE_SETPOINT = MQTT_2_COMMAND_ZONE2 + "/ThermostatSetpoint";
-String MQTT_2_COMMAND_ZONE2_HEAT_PROHIBIT = MQTT_2_COMMAND_ZONE2 + "/ProhibitHeating";
-String MQTT_2_COMMAND_ZONE2_COOL_PROHIBIT = MQTT_2_COMMAND_ZONE2 + "/ProhibitCooling";
+String MQTT_2_COMMAND_ZONE2_FLOW_SETPOINT =
+    MQTT_2_COMMAND_ZONE2 + "/FlowSetpoint";
+String MQTT_2_COMMAND_ZONE2_NOMODE_SETPOINT =
+    MQTT_2_COMMAND_ZONE2 + "/ThermostatSetpoint";
+String MQTT_2_COMMAND_ZONE2_HEAT_PROHIBIT =
+    MQTT_2_COMMAND_ZONE2 + "/ProhibitHeating";
+String MQTT_2_COMMAND_ZONE2_COOL_PROHIBIT =
+    MQTT_2_COMMAND_ZONE2 + "/ProhibitCooling";
 String MQTT_2_COMMAND_ZONE2_HEATINGMODE = MQTT_2_COMMAND_ZONE2 + "/HeatingMode";
 
 String MQTT_2_COMMAND_HOTWATER_MODE = MQTT_2_COMMAND_HOTWATER + "/Mode";
 String MQTT_2_COMMAND_HOTWATER_SETPOINT = MQTT_2_COMMAND_HOTWATER + "/Setpoint";
 String MQTT_2_COMMAND_HOTWATER_BOOST = MQTT_2_COMMAND_HOTWATER + "/Boost";
-String MQTT_2_COMMAND_HOTWATER_NORM_BOOST = MQTT_2_COMMAND_HOTWATER + "/NormalBoost";
+String MQTT_2_COMMAND_HOTWATER_NORM_BOOST =
+    MQTT_2_COMMAND_HOTWATER + "/NormalBoost";
 String MQTT_2_COMMAND_HOTWATER_PROHIBIT = MQTT_2_COMMAND_HOTWATER + "/Prohibit";
 
-String MQTT_2_COMMAND_SYSTEM_HOLIDAYMODE = MQTT_2_COMMAND_SYSTEM + "/HolidayMode";
-String MQTT_2_COMMAND_SYSTEM_SVRMODE = MQTT_2_COMMAND_SYSTEM + "/SvrControlMode";
+String MQTT_2_COMMAND_SYSTEM_HOLIDAYMODE =
+    MQTT_2_COMMAND_SYSTEM + "/HolidayMode";
+String MQTT_2_COMMAND_SYSTEM_SVRMODE =
+    MQTT_2_COMMAND_SYSTEM + "/SvrControlMode";
 String MQTT_2_COMMAND_SYSTEM_POWER = MQTT_2_COMMAND_SYSTEM + "/Power";
 String MQTT_2_COMMAND_SYSTEM_UNITSIZE = MQTT_2_COMMAND_SYSTEM + "/UnitSize";
 String MQTT_2_COMMAND_SYSTEM_GLYCOL = MQTT_2_COMMAND_SYSTEM + "/Glycol";
@@ -147,21 +217,17 @@ String MQTTCommand2SystemGlycol = MQTT_2_COMMAND_SYSTEM_GLYCOL;
 String MQTTCommand2SystemService = MQTT_2_COMMAND_SYSTEM_SERVICE;
 String MQTTCommand2SystemCompCurve = MQTT_2_COMMAND_SYSTEM_COMPCURVE;
 
-
-
 char snprintbuffer[41] = "";
 char DeviceID[15] = "";
 const char ClientPrefix[14] = "EcodanBridge-";
 char WiFiHostname[40] = "";
 
-
-
 // Programs
 
-#if defined(ESP8266) || defined(ESP32)  // ESP32 or ESP8266 Compatiability
+#if defined(ESP8266) || defined(ESP32) // ESP32 or ESP8266 Compatibility
 void readSettingsFromConfig() {
   // Clean LittleFS for testing
-  //LittleFS.format();
+  // LittleFS.format();
 
   // Read configuration from LittleFS JSON
   DEBUG_PRINTLN(F("Mounting File System..."));
@@ -173,7 +239,7 @@ void readSettingsFromConfig() {
 #endif
       DEBUG_PRINTLN(F("Mounted File System"));
       if (LittleFS.exists("/config.json")) {
-        //file exists, reading and loading
+        // file exists, reading and loading
         DEBUG_PRINTLN(F("Reading config file"));
         File configFile = LittleFS.open("/config.json", "r");
         if (configFile) {
@@ -188,117 +254,167 @@ void readSettingsFromConfig() {
             serializeJson(doc, TelnetServer);
             DEBUG_PRINTLN();
 
-            // Build in safety check, otherwise ESP will crash out and you can't get back in
-            if (doc.containsKey(mqttSettings.wm_device_id_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_device_id_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_device_id_identifier]) + 1) <= deviceId_max_length)) {
-                strcpy(mqttSettings.deviceId, doc[mqttSettings.wm_device_id_identifier]);
+            // Build in safety check, otherwise ESP will crash out and you can't
+            // get back in
+            if (!doc[mqttSettings.wm_device_id_identifier].isNull()) {
+              String deviceIdValue =
+                  doc[mqttSettings.wm_device_id_identifier].as<String>();
+              if ((deviceIdValue.length() > 0) &&
+                  ((deviceIdValue.length() + 1) <= deviceId_max_length)) {
+                strcpy(mqttSettings.deviceId, deviceIdValue.c_str());
               }
-            } else {  // For upgrading from <5.3.1, create the entry
+            } else { // For upgrading from <5.3.1, create the entry
 #ifdef ESP8266
-              snprintf(snprintbuffer, deviceId_max_length, (String(ESP.getChipId(), HEX)).c_str());
+              snprintf(snprintbuffer, deviceId_max_length,
+                       (String(ESP.getChipId(), HEX)).c_str());
 #endif
 #ifdef ESP32
-              snprintf(snprintbuffer, deviceId_max_length, (String(ESP.getEfuseMac(), HEX)).c_str());
+              snprintf(snprintbuffer, deviceId_max_length,
+                       (String(ESP.getEfuseMac(), HEX)).c_str());
 #endif
               strcpy(mqttSettings.deviceId, snprintbuffer);
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt_hostname_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt_hostname_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt_hostname_identifier]) + 1) <= hostname_max_length)) {
-                strcpy(mqttSettings.hostname, doc[mqttSettings.wm_mqtt_hostname_identifier]);
+            if (!doc[mqttSettings.wm_mqtt_hostname_identifier].isNull()) {
+              String hostnameValue =
+                  doc[mqttSettings.wm_mqtt_hostname_identifier].as<String>();
+              if ((hostnameValue.length() > 0) &&
+                  ((hostnameValue.length() + 1) <= hostname_max_length)) {
+                strcpy(mqttSettings.hostname, hostnameValue.c_str());
               }
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt_port_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt_port_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt_port_identifier]) + 1) <= port_max_length)) {
-                strcpy(mqttSettings.port, doc[mqttSettings.wm_mqtt_port_identifier]);
+            if (!doc[mqttSettings.wm_mqtt_port_identifier].isNull()) {
+              String portValue =
+                  doc[mqttSettings.wm_mqtt_port_identifier].as<String>();
+              if ((portValue.length() > 0) &&
+                  ((portValue.length() + 1) <= port_max_length)) {
+                strcpy(mqttSettings.port, portValue.c_str());
               }
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt_user_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt_user_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt_user_identifier]) + 1) <= user_max_length)) {
-                strcpy(mqttSettings.user, doc[mqttSettings.wm_mqtt_user_identifier]);
+            if (!doc[mqttSettings.wm_mqtt_user_identifier].isNull()) {
+              String userValue =
+                  doc[mqttSettings.wm_mqtt_user_identifier].as<String>();
+              if ((userValue.length() > 0) &&
+                  ((userValue.length() + 1) <= user_max_length)) {
+                strcpy(mqttSettings.user, userValue.c_str());
               }
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt_password_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt_password_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt_password_identifier]) + 1) <= password_max_length)) {
-                strcpy(mqttSettings.password, doc[mqttSettings.wm_mqtt_password_identifier]);
+            if (!doc[mqttSettings.wm_mqtt_password_identifier].isNull()) {
+              String passwordValue =
+                  doc[mqttSettings.wm_mqtt_password_identifier].as<String>();
+              if ((passwordValue.length() > 0) &&
+                  ((passwordValue.length() + 1) <= password_max_length)) {
+                strcpy(mqttSettings.password, passwordValue.c_str());
               }
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt_basetopic_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt_basetopic_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt_basetopic_identifier]) + 1) <= basetopic_max_length)) {
-                strcpy(mqttSettings.baseTopic, doc[mqttSettings.wm_mqtt_basetopic_identifier]);
+            if (!doc[mqttSettings.wm_mqtt_basetopic_identifier].isNull()) {
+              String baseTopicValue =
+                  doc[mqttSettings.wm_mqtt_basetopic_identifier].as<String>();
+              if ((baseTopicValue.length() > 0) &&
+                  ((baseTopicValue.length() + 1) <= basetopic_max_length)) {
+                strcpy(mqttSettings.baseTopic, baseTopicValue.c_str());
                 MQTT_BASETOPIC = mqttSettings.baseTopic;
               }
             }
             // MQTT Stream 2
-            if (doc.containsKey(mqttSettings.wm_mqtt2_hostname_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt2_hostname_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt2_hostname_identifier]) + 1) <= hostname_max_length)) {
-                strcpy(mqttSettings.hostname2, doc[mqttSettings.wm_mqtt2_hostname_identifier]);
+            if (!doc[mqttSettings.wm_mqtt2_hostname_identifier].isNull()) {
+              String hostname2Value =
+                  doc[mqttSettings.wm_mqtt2_hostname_identifier].as<String>();
+              if ((hostname2Value.length() > 0) &&
+                  ((hostname2Value.length() + 1) <= hostname_max_length)) {
+                strcpy(mqttSettings.hostname2, hostname2Value.c_str());
               }
-            } else {  // For upgrading from <6.0.0, create the entry
-              snprintf(snprintbuffer, hostname_max_length, mqttSettings.hostname2);
+            } else { // For upgrading from <6.0.0, create the entry
+              snprintf(snprintbuffer, hostname_max_length,
+                       mqttSettings.hostname2);
               strcpy(mqttSettings.hostname2, snprintbuffer);
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt2_port_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt2_port_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt2_port_identifier]) + 1) <= port_max_length)) {
-                strcpy(mqttSettings.port2, doc[mqttSettings.wm_mqtt2_port_identifier]);
+            if (!doc[mqttSettings.wm_mqtt2_port_identifier].isNull()) {
+              String port2Value =
+                  doc[mqttSettings.wm_mqtt2_port_identifier].as<String>();
+              if ((port2Value.length() > 0) &&
+                  ((port2Value.length() + 1) <= port_max_length)) {
+                strcpy(mqttSettings.port2, port2Value.c_str());
               }
-            } else {  // For upgrading from <6.0.0, create the entry
+            } else { // For upgrading from <6.0.0, create the entry
               snprintf(snprintbuffer, port_max_length, mqttSettings.port2);
               strcpy(mqttSettings.port2, snprintbuffer);
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt2_user_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt2_user_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt2_user_identifier]) + 1) <= user_max_length)) {
-                strcpy(mqttSettings.user2, doc[mqttSettings.wm_mqtt2_user_identifier]);
+            if (!doc[mqttSettings.wm_mqtt2_user_identifier].isNull()) {
+              String user2Value =
+                  doc[mqttSettings.wm_mqtt2_user_identifier].as<String>();
+              if ((user2Value.length() > 0) &&
+                  ((user2Value.length() + 1) <= user_max_length)) {
+                strcpy(mqttSettings.user2, user2Value.c_str());
               }
-            } else {  // For upgrading from <6.0.0, create the entry
+            } else { // For upgrading from <6.0.0, create the entry
               snprintf(snprintbuffer, user_max_length, mqttSettings.user2);
               strcpy(mqttSettings.user2, snprintbuffer);
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt2_password_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt2_password_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt2_password_identifier]) + 1) <= password_max_length)) {
-                strcpy(mqttSettings.password2, doc[mqttSettings.wm_mqtt2_password_identifier]);
+            if (!doc[mqttSettings.wm_mqtt2_password_identifier].isNull()) {
+              String password2Value =
+                  doc[mqttSettings.wm_mqtt2_password_identifier].as<String>();
+              if ((password2Value.length() > 0) &&
+                  ((password2Value.length() + 1) <= password_max_length)) {
+                strcpy(mqttSettings.password2, password2Value.c_str());
               }
-            } else {  // For upgrading from <6.0.0, create the entry
-              snprintf(snprintbuffer, password_max_length, mqttSettings.password2);
+            } else { // For upgrading from <6.0.0, create the entry
+              snprintf(snprintbuffer, password_max_length,
+                       mqttSettings.password2);
               strcpy(mqttSettings.password2, snprintbuffer);
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
-            if (doc.containsKey(mqttSettings.wm_mqtt2_basetopic_identifier)) {
-              if ((strlen(doc[mqttSettings.wm_mqtt2_basetopic_identifier]) > 0) && ((strlen(doc[mqttSettings.wm_mqtt2_basetopic_identifier]) + 1) <= basetopic_max_length)) {
-                strcpy(mqttSettings.baseTopic2, doc[mqttSettings.wm_mqtt2_basetopic_identifier]);
+            if (!doc[mqttSettings.wm_mqtt2_basetopic_identifier].isNull()) {
+              String baseTopic2Value =
+                  doc[mqttSettings.wm_mqtt2_basetopic_identifier].as<String>();
+              if ((baseTopic2Value.length() > 0) &&
+                  ((baseTopic2Value.length() + 1) <= basetopic_max_length)) {
+                strcpy(mqttSettings.baseTopic2, baseTopic2Value.c_str());
                 MQTT_2_BASETOPIC = mqttSettings.baseTopic2;
               }
-            } else {  // For upgrading from <6.0.0, create the entry
+            } else { // For upgrading from <6.0.0, create the entry
               strcpy(mqttSettings.baseTopic2, mqttSettings.deviceId);
               MQTT_2_BASETOPIC = mqttSettings.baseTopic2;
-              shouldSaveConfig = true;  // Save config after exit to update the file
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
             // Unit Size
-            if (doc.containsKey(unitSettings.unitsize_identifier)) {
-              if (doc[unitSettings.unitsize_identifier] > 0) {
+            if (!doc[unitSettings.unitsize_identifier].isNull()) {
+              if (doc[unitSettings.unitsize_identifier].as<float>() > 0) {
                 unitSettings.UnitSize = doc[unitSettings.unitsize_identifier];
               }
-            } else {                    // For upgrading from <6.1.1, create the entry
-              shouldSaveConfig = true;  // Save config after exit to update the file
+            } else { // For upgrading from <6.1.1, create the entry
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
             // Glycol Strength
-            if (doc.containsKey(unitSettings.glycol_identifier)) {
-              if (doc[unitSettings.glycol_identifier] > 0) {
-                unitSettings.GlycolStrength = doc[unitSettings.glycol_identifier];
+            if (!doc[unitSettings.glycol_identifier].isNull()) {
+              if (doc[unitSettings.glycol_identifier].as<float>() > 0) {
+                unitSettings.GlycolStrength =
+                    doc[unitSettings.glycol_identifier].as<float>();
               }
-            } else {                    // For upgrading from <6.1.1, create the entry
-              shouldSaveConfig = true;  // Save config after exit to update the file
+            } else { // For upgrading from <6.1.1, create the entry
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
             // Compensation Curve
-            if (doc.containsKey(unitSettings.compcurve_identifier)) {
-              if (strlen(doc[unitSettings.compcurve_identifier]) > 0) {
-                unitSettings.CompCurve = doc[unitSettings.compcurve_identifier].as<String>();
+            if (!doc[unitSettings.compcurve_identifier].isNull()) {
+              String compCurveValue =
+                  doc[unitSettings.compcurve_identifier].as<String>();
+              if (compCurveValue.length() > 0) {
+                unitSettings.CompCurve = compCurveValue;
               }
-            } else {                    // For upgrading from <6.3.0, create the entry
-              shouldSaveConfig = true;  // Save config after exit to update the file
+            } else { // For upgrading from <6.3.0, create the entry
+              shouldSaveConfig =
+                  true; // Save config after exit to update the file
             }
           }
         }
@@ -307,20 +423,21 @@ void readSettingsFromConfig() {
         DEBUG_PRINTLN(F("No config file exists, using placeholder values"));
         // Populate the Dynamic Variables (Device ID)
 #ifdef ESP8266
-        snprintf(DeviceID, deviceId_max_length, (String(ESP.getChipId(), HEX)).c_str());
+        snprintf(DeviceID, deviceId_max_length,
+                 (String(ESP.getChipId(), HEX)).c_str());
 #endif
 #ifdef ESP32
-        snprintf(DeviceID, deviceId_max_length, (String(ESP.getEfuseMac(), HEX)).c_str());
+        snprintf(DeviceID, deviceId_max_length,
+                 (String(ESP.getEfuseMac(), HEX)).c_str());
 #endif
         strcpy(mqttSettings.deviceId, DeviceID);
-        strcpy(mqttSettings.baseTopic2, DeviceID);  // Base topic 2 defaults to deviceID
+        strcpy(mqttSettings.baseTopic2,
+               DeviceID); // Base topic 2 defaults to deviceID
       }
     } else {
       DEBUG_PRINTLN(F("Failed to mount File System"));
     }
   }
-
-
 
   void RecalculateMQTTTopics() {
     // The base topic may change via WiFi Manager
@@ -345,13 +462,15 @@ void readSettingsFromConfig() {
     MQTT_COMMAND_SYSTEM = MQTT_COMMAND + "/System";
 
     MQTT_COMMAND_ZONE1_FLOW_SETPOINT = MQTT_COMMAND_ZONE1 + "/FlowSetpoint";
-    MQTT_COMMAND_ZONE1_NOMODE_SETPOINT = MQTT_COMMAND_ZONE1 + "/ThermostatSetpoint";
+    MQTT_COMMAND_ZONE1_NOMODE_SETPOINT =
+        MQTT_COMMAND_ZONE1 + "/ThermostatSetpoint";
     MQTT_COMMAND_ZONE1_HEAT_PROHIBIT = MQTT_COMMAND_ZONE1 + "/ProhibitHeating";
     MQTT_COMMAND_ZONE1_COOL_PROHIBIT = MQTT_COMMAND_ZONE1 + "/ProhibitCooling";
     MQTT_COMMAND_ZONE1_HEATINGMODE = MQTT_COMMAND_ZONE1 + "/HeatingMode";
 
     MQTT_COMMAND_ZONE2_FLOW_SETPOINT = MQTT_COMMAND_ZONE2 + "/FlowSetpoint";
-    MQTT_COMMAND_ZONE2_NOMODE_SETPOINT = MQTT_COMMAND_ZONE2 + "/ThermostatSetpoint";
+    MQTT_COMMAND_ZONE2_NOMODE_SETPOINT =
+        MQTT_COMMAND_ZONE2 + "/ThermostatSetpoint";
     MQTT_COMMAND_ZONE2_HEAT_PROHIBIT = MQTT_COMMAND_ZONE2 + "/ProhibitHeating";
     MQTT_COMMAND_ZONE2_COOL_PROHIBIT = MQTT_COMMAND_ZONE2 + "/ProhibitCooling";
     MQTT_COMMAND_ZONE2_HEATINGMODE = MQTT_COMMAND_ZONE2 + "/HeatingMode";
@@ -396,7 +515,6 @@ void readSettingsFromConfig() {
     MQTTCommandSystemService = MQTT_COMMAND_SYSTEM_SERVICE;
   }
 
-
   void saveConfig() {
     // Read MQTT Portal Values for save to file system
     DEBUG_PRINTLN(F("Copying Portal Values..."));
@@ -411,6 +529,10 @@ void readSettingsFromConfig() {
     strcpy(mqttSettings.user2, custom_mqtt2_user.getValue());
     strcpy(mqttSettings.password2, custom_mqtt2_pass.getValue());
     strcpy(mqttSettings.baseTopic2, custom_mqtt2_basetopic.getValue());
+    
+    // Handle cascade parameters
+    mqttSettings.cascadeEnabled = (strcmp(custom_cascade_enabled.getValue(), "true") == 0);
+    mqttSettings.cascadeNodeId = atoi(custom_cascade_node_id.getValue());
 
     DEBUG_PRINT(F("Saving config... "));
     File configFile = LittleFS.open("/config.json", "w");
@@ -445,16 +567,14 @@ void readSettingsFromConfig() {
     shouldSaveConfig = false;
   }
 
-  //callback notifying us of the need to save config
-  void saveConfigCallback() {
-    saveConfig();
-  }
+  // callback notifying us of the need to save config
+  void saveConfigCallback() { saveConfig(); }
 
   void initializeWifiManager() {
     DEBUG_PRINTLN(F("Starting WiFi Manager"));
     // Reset Wifi settings for testing
-    //wifiManager.resetSettings();
-    //wifiManager.setDebugOutput(true);
+    // wifiManager.resetSettings();
+    // wifiManager.setDebugOutput(true);
     wifiManager.setTitle("Ecodan Bridge");
 
     // Set or Update the values
@@ -463,12 +583,20 @@ void readSettingsFromConfig() {
     custom_mqtt_port.setValue(mqttSettings.port, port_max_length);
     custom_mqtt_user.setValue(mqttSettings.user, user_max_length);
     custom_mqtt_pass.setValue(mqttSettings.password, password_max_length);
-    custom_mqtt_basetopic.setValue(mqttSettings.baseTopic, basetopic_max_length);
+    custom_mqtt_basetopic.setValue(mqttSettings.baseTopic,
+                                   basetopic_max_length);
     custom_mqtt2_server.setValue(mqttSettings.hostname2, hostname_max_length);
     custom_mqtt2_port.setValue(mqttSettings.port2, port_max_length);
     custom_mqtt2_user.setValue(mqttSettings.user2, user_max_length);
     custom_mqtt2_pass.setValue(mqttSettings.password2, password_max_length);
-    custom_mqtt2_basetopic.setValue(mqttSettings.baseTopic2, basetopic_max_length);
+    custom_mqtt2_basetopic.setValue(mqttSettings.baseTopic2,
+                                    basetopic_max_length);
+    
+    // Set cascade parameter values
+    custom_cascade_enabled.setValue(mqttSettings.cascadeEnabled ? "true" : "false", 10);
+    char nodeIdStr[5];
+    itoa(mqttSettings.cascadeNodeId, nodeIdStr, 10);
+    custom_cascade_node_id.setValue(nodeIdStr, 5);
 
     // Add the custom MQTT parameters here
     wifiManager.addParameter(&custom_mqtt_server);
@@ -481,24 +609,29 @@ void readSettingsFromConfig() {
     wifiManager.addParameter(&custom_mqtt2_pass);
     wifiManager.addParameter(&custom_mqtt2_port);
     wifiManager.addParameter(&custom_mqtt2_basetopic);
+    wifiManager.addParameter(&custom_cascade_enabled);
+    wifiManager.addParameter(&custom_cascade_node_id);
     wifiManager.addParameter(&custom_device_id);
 
-    //set minimum quality of signal so it ignores AP's under that quality
-    //defaults to 8%
-    //wifiManager.setMinimumSignalQuality(20);
+    // set minimum quality of signal so it ignores AP's under that quality
+    // defaults to 8%
+    // wifiManager.setMinimumSignalQuality(20);
 
     snprintf(WiFiHostname, 40, "%s%s", ClientPrefix, mqttSettings.deviceId);
     WiFi.hostname(WiFiHostname);
-#ifdef ESP8266                         // Define the Witty ESP8266 Ports
-    digitalWrite(Blue_RGB_LED, HIGH);  // Turn the Blue LED On
+#ifdef ESP8266                        // Define the Witty ESP8266 Ports
+    digitalWrite(Blue_RGB_LED, HIGH); // Turn the Blue LED On
 #endif
-    wifiManager.setConfigPortalBlocking(false);             // Non-Blocking portal
-    wifiManager.setBreakAfterConfig(true);                  // Saves settings, even if WiFi Fails
-    wifiManager.setSaveConfigCallback(saveConfigCallback);  // Set config save callback
-    wifiManager.setAPClientCheck(true);                     // Avoid timeout if client connected to softap
+    wifiManager.setConfigPortalBlocking(false); // Non-Blocking portal
+    wifiManager.setBreakAfterConfig(true); // Saves settings, even if WiFi Fails
+    wifiManager.setSaveConfigCallback(
+        saveConfigCallback); // Set config save callback
+    wifiManager.setAPClientCheck(
+        true); // Avoid timeout if client connected to softap
 
 #ifndef ARDUINO_WT32_ETH01
-    wifiManager.setConfigPortalTimeout(600);  // Timeout before launching the config portal (WiFi Only)
+    wifiManager.setConfigPortalTimeout(
+        600); // Timeout before launching the config portal (WiFi Only)
     if (!wifiManager.autoConnect("Ecodan Bridge AP")) {
       DEBUG_PRINTLN(F("Failed to connect and hit timeout"));
     } else {
@@ -506,8 +639,6 @@ void readSettingsFromConfig() {
     }
 #endif
   }
-
-
 
   void PublishDiscoveryTopics(uint8_t MQTTStream, String BASETOPIC) {
 
@@ -531,19 +662,21 @@ void readSettingsFromConfig() {
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
 
-      if (i == 0) {  // If the first topic
+      if (i == 0) { // If the first topic
         Config["device"]["identifiers"] = WiFiHostname;
         Config["device"]["manufacturer"] = "F1p";
         Config["device"]["model"] = ChipModel;
         Config["device"]["serial_number"] = ChipID;
         Config["device"]["name"] = "Ecodan ASHP";
 #ifdef ARDUINO_WT32_ETH01
-        Config["device"]["configuration_url"] = "http://" + ETH.localIP().toString() + ":80";
+        Config["device"]["configuration_url"] =
+            "http://" + ETH.localIP().toString() + ":80";
 #else
-      Config["device"]["configuration_url"] = "http://" + WiFi.localIP().toString() + ":80";
+      Config["device"]["configuration_url"] =
+          "http://" + WiFi.localIP().toString() + ":80";
 #endif
         Config["device"]["sw_version"] = FirmwareVersion;
-      } else {  // Otherwise post just identifier
+      } else { // Otherwise post just identifier
         Config["device"]["identifiers"] = WiFiHostname;
       }
 
@@ -551,14 +684,20 @@ void readSettingsFromConfig() {
       Config["unique_id"] = String(MQTT_SENSOR_UNIQUE_ID[i]) + ChipID;
       Config["name"] = String(MQTT_SENSOR_NAME[i]);
 
-
       // Sensors
       if (i >= 0 && i < 96) {
-        Config["stat_t"] = BASETOPIC + String(MQTT_TOPIC[MQTT_TOPIC_POS[i]]);                               // Needs a positioner
-        if (MQTT_UNITS_POS[i] > 0) {                                                                        // If there is a unit
-          Config["unit_of_meas"] = String(MQTT_SENSOR_UNITS[MQTT_UNITS_POS[i]]);                            // Publish Units
-          if (MQTT_UNITS_POS[i] < 8) { Config["dev_cla"] = String(MQTT_DEVICE_CLASS[MQTT_UNITS_POS[i]]); }  // Device classes only exist for some units
-          if (MQTT_UNITS_POS[i] != 7) { Config["stat_cla"] = "measurement"; }                               // Only some can be measurement
+        Config["stat_t"] =
+            BASETOPIC +
+            String(MQTT_TOPIC[MQTT_TOPIC_POS[i]]); // Needs a positioner
+        if (MQTT_UNITS_POS[i] > 0) {               // If there is a unit
+          Config["unit_of_meas"] =
+              String(MQTT_SENSOR_UNITS[MQTT_UNITS_POS[i]]); // Publish Units
+          if (MQTT_UNITS_POS[i] < 8) {
+            Config["dev_cla"] = String(MQTT_DEVICE_CLASS[MQTT_UNITS_POS[i]]);
+          } // Device classes only exist for some units
+          if (MQTT_UNITS_POS[i] != 7) {
+            Config["stat_cla"] = "measurement";
+          } // Only some can be measurement
         }
         Config["val_tpl"] = String(MQTT_SENSOR_VALUE_TEMPLATE[i]);
         Config["icon"] = String(MQTT_MDI_ICONS[i]);
@@ -583,7 +722,8 @@ void readSettingsFromConfig() {
           Config["temp_stat_tpl"] = String(MQTT_SENSOR_VALUE_TEMPLATE[98]);
         }
         Config["temp_unit"] = String(MQTT_SENSOR_UNITS[9]);
-        if (HeatPump.Status.RefrigerantType == 2 && i == 96) {  // If R290 then DHW Max can be 70C
+        if (HeatPump.Status.RefrigerantType == 2 &&
+            i == 96) { // If R290 then DHW Max can be 70C
           Config["max_temp"] = MQTT_CLIMATE_MAX[6];
         } else {
           Config["max_temp"] = MQTT_CLIMATE_MAX[i - 96];
@@ -594,9 +734,11 @@ void readSettingsFromConfig() {
         Config["precision"] = MQTT_CLIMATE_PRECISION[i - 96];
         Config["initial"] = MQTT_CLIMATE_INITAL[i - 96];
         Config["action_topic"] = BASETOPIC + String(MQTT_TOPIC[2]);
-        Config["action_template"] = String(MQTT_CLIMATE_MODE_STATE_TEMPLATE[i - 96]);
+        Config["action_template"] =
+            String(MQTT_CLIMATE_MODE_STATE_TEMPLATE[i - 96]);
         Config["mode_state_topic"] = BASETOPIC + String(MQTT_TOPIC[8]);
-        Config["mode_state_template"] = String(MQTT_CLIMATE_STATE_TOPIC[i - 96]);
+        Config["mode_state_template"] =
+            String(MQTT_CLIMATE_STATE_TOPIC[i - 96]);
         if (i == 96) {
           Config["modes"][0] = "heat";
           Config["modes"][1] = "off";
@@ -613,7 +755,8 @@ void readSettingsFromConfig() {
 
       // Switches
       if (i >= 101 && i < 111) {
-        Config["state_topic"] = BASETOPIC + String(MQTT_TOPIC[MQTT_SWITCH_STATE_POS[i - 101]]);
+        Config["state_topic"] =
+            BASETOPIC + String(MQTT_TOPIC[MQTT_SWITCH_STATE_POS[i - 101]]);
         Config["value_template"] = String(MQTT_SENSOR_VALUE_TEMPLATE[i - 2]);
         Config["command_topic"] = BASETOPIC + String(MQTT_TOPIC[i - 87]);
         if (i == 102) {
@@ -632,16 +775,16 @@ void readSettingsFromConfig() {
         MQTT_DISCOVERY_TOPIC = String(MQTT_DISCOVERY_TOPICS[2]);
       }
 
-
       // Selects
       if (i >= 111 && i < 116) {
         Config["command_topic"] = BASETOPIC + String(MQTT_TOPIC[i - 85]);
         Config["state_topic"] = BASETOPIC + String(MQTT_TOPIC[i - 107]);
         Config["value_template"] = String(MQTT_SELECT_VALUE_TEMPLATE[i - 111]);
-        if (i == 111) {  // DHW Modes
+        if (i == 111) { // DHW Modes
           Config["options"][0] = HotWaterControlModeString[0];
           Config["options"][1] = HotWaterControlModeString[1];
-        } else if (i == 114) {  // Unit Sizes - for some reason it doesn't like doing this from PROGMEM in a loop on the 8266
+        } else if (i == 114) { // Unit Sizes - for some reason it doesn't like
+                               // doing this from PROGMEM in a loop on the 8266
           Config["state_topic"] = BASETOPIC + String(MQTT_TOPIC[1]);
           Config["options"][0] = "4.0";
           Config["options"][1] = "5.0";
@@ -653,13 +796,13 @@ void readSettingsFromConfig() {
           Config["options"][7] = "11.2";
           Config["options"][8] = "12.0";
           Config["options"][9] = "14.0";
-        } else if (i == 115) {  // Glycol Strengths
+        } else if (i == 115) { // Glycol Strengths
           Config["state_topic"] = BASETOPIC + String(MQTT_TOPIC[1]);
           Config["options"][0] = "0%";
           Config["options"][1] = "10%";
           Config["options"][2] = "20%";
           Config["options"][3] = "30%";
-        } else {  // Zone Options
+        } else { // Zone Options
           Config["options"][0] = "Heating Temperature";
           Config["options"][1] = "Heating Flow";
           Config["options"][2] = "Heating Compensation";
@@ -670,33 +813,41 @@ void readSettingsFromConfig() {
         MQTT_DISCOVERY_TOPIC = String(MQTT_DISCOVERY_TOPICS[4]);
       }
 
-
       // Add Availability Topics
       if (i >= 97) {
-        if (i >= 105 && i < 110) {  // Server Control Mode Interlocks
+        if (i >= 105 && i < 110) { // Server Control Mode Interlocks
           Config["availability"]["topic"] = BASETOPIC + String(MQTT_TOPIC[8]);
-          Config["availability"]["value_template"] = String(MQTT_SENSOR_VALUE_TEMPLATE[102]);
+          Config["availability"]["value_template"] =
+              String(MQTT_SENSOR_VALUE_TEMPLATE[102]);
           Config["availability"]["payload_available"] = ITEM_ON;
           Config["availability"]["payload_not_available"] = ITEM_OFF;
-        } else if (i >= 99 && i < 101) {  // Flow Op Mode Interlocks on Climate & Number
-          Config["availability"]["topic"] = BASETOPIC + String(MQTT_TOPIC[i - 94]);
-          Config["availability"]["value_template"] = String(MQTT_NUMBER_AVAIL_TEMPLATE[0]);
-        } else {  // Everything else LWT
+        } else if (i >= 99 &&
+                   i < 101) { // Flow Op Mode Interlocks on Climate & Number
+          Config["availability"]["topic"] =
+              BASETOPIC + String(MQTT_TOPIC[i - 94]);
+          Config["availability"]["value_template"] =
+              String(MQTT_NUMBER_AVAIL_TEMPLATE[0]);
+        } else { // Everything else LWT
           Config["availability"]["topic"] = BASETOPIC + String(MQTT_TOPIC[0]);
         }
       }
 
       char Buffer_Payload[2048];
       size_t buf_size = serializeJson(Config, Buffer_Payload);
-      Buffer_Topic = MQTT_DISCOVERY_TOPIC + ChipID + String(MQTT_DISCOVERY_OBJ_ID[i]) + String(MQTT_DISCOVERY_TOPICS[5]);
+      Buffer_Topic = MQTT_DISCOVERY_TOPIC + ChipID +
+                     String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                     String(MQTT_DISCOVERY_TOPICS[5]);
 
       if (MQTTStream == 1) {
-        MQTTClient1.publish(Buffer_Topic.c_str(), (uint8_t*)&Buffer_Payload, buf_size, true);
+        MQTTClient1.publish(Buffer_Topic.c_str(), (uint8_t *)&Buffer_Payload,
+                            buf_size, true);
       } else if (MQTTStream == 2) {
-        MQTTClient2.publish(Buffer_Topic.c_str(), (uint8_t*)&Buffer_Payload, buf_size, true);
+        MQTTClient2.publish(Buffer_Topic.c_str(), (uint8_t *)&Buffer_Payload,
+                            buf_size, true);
       }
 
-      MQTT_DISCOVERY_TOPIC = "";  // Clear everything ready for next loop to save RAM
+      MQTT_DISCOVERY_TOPIC =
+          ""; // Clear everything ready for next loop to save RAM
       Buffer_Topic = "";
       Config.clear();
     }
@@ -744,21 +895,21 @@ void readSettingsFromConfig() {
     delay(10);
     PublishDiscoveryTopics(1, MQTT_BASETOPIC);
 
-#ifdef ESP8266                       // Define the Witty ESP8266 Ports
-    analogWrite(Green_RGB_LED, 30);  // Green LED on, 25% brightness
-    digitalWrite(Red_RGB_LED, LOW);  // Turn the Red LED Off
+#ifdef ESP8266                      // Define the Witty ESP8266 Ports
+    analogWrite(Green_RGB_LED, 30); // Green LED on, 25% brightness
+    digitalWrite(Red_RGB_LED, LOW); // Turn the Red LED Off
 #endif
-#ifdef ARDUINO_M5STACK_ATOMS3       // Define the M5Stack LED
-    myLED.setPixel(0, L_GREEN, 1);  // set the LED colour and show it
+#ifdef ARDUINO_M5STACK_ATOMS3      // Define the M5Stack LED
+    myLED.setPixel(0, L_GREEN, 1); // set the LED colour and show it
     myLED.brightness(LED_BRIGHT, 1);
 #endif
   }
 
-
   uint8_t MQTTReconnect() {
     if (MQTTClient1.connected()) {
       return 1;
-    } else if (strcmp(mqttSettings.hostname, "IPorDNS") != 0 && strcmp(mqttSettings.hostname, "") != 0) {
+    } else if (strcmp(mqttSettings.hostname, "IPorDNS") != 0 &&
+               strcmp(mqttSettings.hostname, "") != 0) {
       initializeMQTTClient1();
       DEBUG_PRINT(F("With Client ID: "));
       DEBUG_PRINT(mqttSettings.deviceId);
@@ -767,54 +918,57 @@ void readSettingsFromConfig() {
       DEBUG_PRINT(F(" and Password: "));
       DEBUG_PRINTLN(mqttSettings.password);
 
-      if (MQTTClient1.connect(mqttSettings.deviceId, mqttSettings.user, mqttSettings.password, MQTT_LWT.c_str(), 0, true, "offline")) {
+      if (MQTTClient1.connect(mqttSettings.deviceId, mqttSettings.user,
+                              mqttSettings.password, MQTT_LWT.c_str(), 0, true,
+                              "offline")) {
         DEBUG_PRINTLN(F("MQTT Server Connected"));
         MQTTonConnect();
-#ifdef ESP8266                              // Define the Witty ESP8266 Ports
-        digitalWrite(Red_RGB_LED, LOW);     // Turn off the Red LED
-        digitalWrite(Green_RGB_LED, HIGH);  // Flash the Green LED
+#ifdef ESP8266                             // Define the Witty ESP8266 Ports
+        digitalWrite(Red_RGB_LED, LOW);    // Turn off the Red LED
+        digitalWrite(Green_RGB_LED, HIGH); // Flash the Green LED
         delay(10);
-        analogWrite(Green_RGB_LED, 30);  // Green LED on, 25% brightness
+        analogWrite(Green_RGB_LED, 30); // Green LED on, 25% brightness
 #endif
         return 1;
       } else {
-#ifdef ARDUINO_M5STACK_ATOMS3                        // Define the M5Stack LED
-        if (!wifiManager.getConfigPortalActive()) {  // Not got config portal open, change to orange:
-          myLED.setPixel(0, L_ORANGE, 1);            // set the LED colour and show it
+#ifdef ARDUINO_M5STACK_ATOMS3                       // Define the M5Stack LED
+        if (!wifiManager.getConfigPortalActive()) { // Not got config portal
+                                                    // open, change to orange:
+          myLED.setPixel(0, L_ORANGE, 1); // set the LED colour and show it
         }
         //
 #endif
         switch (MQTTClient1.state()) {
-          case -4:
-            DEBUG_PRINTLN(F("MQTT_CONNECTION_TIMEOUT"));
-            break;
-          case -3:
-            DEBUG_PRINTLN(F("MQTT_CONNECTION_LOST"));
-            break;
-          case -2:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_FAILED"));
-            break;
-          case -1:
-            DEBUG_PRINTLN(F("MQTT_DISCONNECTED"));
-            break;
-          case 0:
-            DEBUG_PRINTLN(F("MQTT_CONNECTED"));
-            break;
-          case 1:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_PROTOCOL"));
-            break;
-          case 2:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_CLIENT_ID"));
-            break;
-          case 3:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_UNAVAILABLE"));
-            break;
-          case 4:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_CREDENTIALS"));
-            break;
-          case 5:
-            DEBUG_PRINTLN(F("MQTT_CONNECT_UNAUTHORIZED"));
-            break;
+        case -4:
+          DEBUG_PRINTLN(F("MQTT_CONNECTION_TIMEOUT"));
+          break;
+        case -3:
+          DEBUG_PRINTLN(F("MQTT_CONNECTION_LOST"));
+          break;
+        case -2:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_FAILED"));
+          break;
+        case -1:
+          DEBUG_PRINTLN(F("MQTT_DISCONNECTED"));
+          break;
+        case 0:
+          DEBUG_PRINTLN(F("MQTT_CONNECTED"));
+          break;
+        case 1:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_PROTOCOL"));
+          break;
+        case 2:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_CLIENT_ID"));
+          break;
+        case 3:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_UNAVAILABLE"));
+          break;
+        case 4:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_BAD_CREDENTIALS"));
+          break;
+        case 5:
+          DEBUG_PRINTLN(F("MQTT_CONNECT_UNAUTHORIZED"));
+          break;
         }
         return 0;
       }
@@ -825,24 +979,24 @@ void readSettingsFromConfig() {
     }
   }
 
-
   void handleMQTTState() {
     if (!MQTTClient1.connected()) {
-#ifdef ARDUINO_M5STACK_ATOMS3                      // Define the M5Stack LED
-      if (!wifiManager.getConfigPortalActive()) {  // Not got config portal open, change to orange:
-        myLED.setPixel(0, L_ORANGE, 1);            // set the LED colour and show it
+#ifdef ARDUINO_M5STACK_ATOMS3                     // Define the M5Stack LED
+      if (!wifiManager.getConfigPortalActive()) { // Not got config portal open,
+                                                  // change to orange:
+        myLED.setPixel(0, L_ORANGE, 1); // set the LED colour and show it
       }
 #endif
-#ifdef ESP8266                          // Define the Witty ESP8266 Ports
-      analogWrite(Green_RGB_LED, 30);   // Green LED on, 25% brightness
-      digitalWrite(Red_RGB_LED, HIGH);  // Add the Red LED to the Green LED = Orange
+#ifdef ESP8266                        // Define the Witty ESP8266 Ports
+      analogWrite(Green_RGB_LED, 30); // Green LED on, 25% brightness
+      digitalWrite(Red_RGB_LED,
+                   HIGH); // Add the Red LED to the Green LED = Orange
 #endif
       MQTTReconnect();
       DEBUG_PRINTLN("Returned to here 1");
       delay(10);
     }
   }
-
 
   void RecalculateMQTT2Topics() {
     // The base topic may change via WiFi Manager
@@ -866,21 +1020,28 @@ void readSettingsFromConfig() {
     MQTT_2_COMMAND_SYSTEM = MQTT_2_COMMAND + "/System";
 
     MQTT_2_COMMAND_ZONE1_FLOW_SETPOINT = MQTT_2_COMMAND_ZONE1 + "/FlowSetpoint";
-    MQTT_2_COMMAND_ZONE1_NOMODE_SETPOINT = MQTT_2_COMMAND_ZONE1 + "/ThermostatSetpoint";
-    MQTT_2_COMMAND_ZONE1_HEAT_PROHIBIT = MQTT_2_COMMAND_ZONE1 + "/ProhibitHeating";
-    MQTT_2_COMMAND_ZONE1_COOL_PROHIBIT = MQTT_2_COMMAND_ZONE1 + "/ProhibitCooling";
+    MQTT_2_COMMAND_ZONE1_NOMODE_SETPOINT =
+        MQTT_2_COMMAND_ZONE1 + "/ThermostatSetpoint";
+    MQTT_2_COMMAND_ZONE1_HEAT_PROHIBIT =
+        MQTT_2_COMMAND_ZONE1 + "/ProhibitHeating";
+    MQTT_2_COMMAND_ZONE1_COOL_PROHIBIT =
+        MQTT_2_COMMAND_ZONE1 + "/ProhibitCooling";
     MQTT_2_COMMAND_ZONE1_HEATINGMODE = MQTT_2_COMMAND_ZONE1 + "/HeatingMode";
 
     MQTT_2_COMMAND_ZONE2_FLOW_SETPOINT = MQTT_2_COMMAND_ZONE2 + "/FlowSetpoint";
-    MQTT_2_COMMAND_ZONE2_NOMODE_SETPOINT = MQTT_2_COMMAND_ZONE2 + "/ThermostatSetpoint";
-    MQTT_2_COMMAND_ZONE2_HEAT_PROHIBIT = MQTT_2_COMMAND_ZONE2 + "/ProhibitHeating";
-    MQTT_2_COMMAND_ZONE2_COOL_PROHIBIT = MQTT_2_COMMAND_ZONE2 + "/ProhibitCooling";
+    MQTT_2_COMMAND_ZONE2_NOMODE_SETPOINT =
+        MQTT_2_COMMAND_ZONE2 + "/ThermostatSetpoint";
+    MQTT_2_COMMAND_ZONE2_HEAT_PROHIBIT =
+        MQTT_2_COMMAND_ZONE2 + "/ProhibitHeating";
+    MQTT_2_COMMAND_ZONE2_COOL_PROHIBIT =
+        MQTT_2_COMMAND_ZONE2 + "/ProhibitCooling";
     MQTT_2_COMMAND_ZONE2_HEATINGMODE = MQTT_2_COMMAND_ZONE2 + "/HeatingMode";
 
     MQTT_2_COMMAND_HOTWATER_MODE = MQTT_2_COMMAND_HOTWATER + "/Mode";
     MQTT_2_COMMAND_HOTWATER_SETPOINT = MQTT_2_COMMAND_HOTWATER + "/Setpoint";
     MQTT_2_COMMAND_HOTWATER_BOOST = MQTT_2_COMMAND_HOTWATER + "/Boost";
-    MQTT_2_COMMAND_HOTWATER_NORM_BOOST = MQTT_2_COMMAND_HOTWATER + "/NormalBoost";
+    MQTT_2_COMMAND_HOTWATER_NORM_BOOST =
+        MQTT_2_COMMAND_HOTWATER + "/NormalBoost";
     MQTT_2_COMMAND_HOTWATER_PROHIBIT = MQTT_2_COMMAND_HOTWATER + "/Prohibit";
 
     MQTT_2_COMMAND_SYSTEM_HOLIDAYMODE = MQTT_2_COMMAND_SYSTEM + "/HolidayMode";
@@ -916,10 +1077,6 @@ void readSettingsFromConfig() {
     MQTTCommand2SystemService = MQTT_2_COMMAND_SYSTEM_SERVICE;
   }
 
-
-
-
-
   void initializeMQTTClient2() {
     DEBUG_PRINT(F("Attempting MQTT connection to: "));
     DEBUG_PRINT(mqttSettings.hostname2);
@@ -927,8 +1084,6 @@ void readSettingsFromConfig() {
     DEBUG_PRINTLN(mqttSettings.port2);
     MQTTClient2.setServer(mqttSettings.hostname2, atoi(mqttSettings.port2));
   }
-
-
 
   void MQTT2onConnect(void) {
     DEBUG_PRINTLN(F("MQTT 2 ON CONNECT"));
@@ -961,11 +1116,11 @@ void readSettingsFromConfig() {
     PublishDiscoveryTopics(2, MQTT_2_BASETOPIC);
   }
 
-
   uint8_t MQTT2Reconnect() {
     if (MQTTClient2.connected()) {
       return 1;
-    } else if (strcmp(mqttSettings.hostname2, "IPorDNS") != 0 && strcmp(mqttSettings.hostname2, "") != 0) {
+    } else if (strcmp(mqttSettings.hostname2, "IPorDNS") != 0 &&
+               strcmp(mqttSettings.hostname2, "") != 0) {
       initializeMQTTClient2();
       DEBUG_PRINT(F("With Client ID: "));
       DEBUG_PRINT(mqttSettings.deviceId);
@@ -974,42 +1129,44 @@ void readSettingsFromConfig() {
       DEBUG_PRINT(F(" and Password: "));
       DEBUG_PRINTLN(mqttSettings.password2);
 
-      if (MQTTClient2.connect(mqttSettings.deviceId, mqttSettings.user2, mqttSettings.password2, MQTT_2_LWT.c_str(), 0, true, "offline")) {
+      if (MQTTClient2.connect(mqttSettings.deviceId, mqttSettings.user2,
+                              mqttSettings.password2, MQTT_2_LWT.c_str(), 0,
+                              true, "offline")) {
         DEBUG_PRINTLN(F("MQTT Server 2 Connected"));
         MQTT2onConnect();
         return 1;
       } else {
         switch (MQTTClient2.state()) {
-          case -4:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECTION_TIMEOUT"));
-            break;
-          case -3:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECTION_LOST"));
-            break;
-          case -2:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_FAILED"));
-            break;
-          case -1:
-            DEBUG_PRINTLN(F("MQTT_2_DISCONNECTED"));
-            break;
-          case 0:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECTED"));
-            break;
-          case 1:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_PROTOCOL"));
-            break;
-          case 2:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_CLIENT_ID"));
-            break;
-          case 3:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_UNAVAILABLE"));
-            break;
-          case 4:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_CREDENTIALS"));
-            break;
-          case 5:
-            DEBUG_PRINTLN(F("MQTT_2_CONNECT_UNAUTHORIZED"));
-            break;
+        case -4:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECTION_TIMEOUT"));
+          break;
+        case -3:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECTION_LOST"));
+          break;
+        case -2:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_FAILED"));
+          break;
+        case -1:
+          DEBUG_PRINTLN(F("MQTT_2_DISCONNECTED"));
+          break;
+        case 0:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECTED"));
+          break;
+        case 1:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_PROTOCOL"));
+          break;
+        case 2:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_CLIENT_ID"));
+          break;
+        case 3:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_UNAVAILABLE"));
+          break;
+        case 4:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_BAD_CREDENTIALS"));
+          break;
+        case 5:
+          DEBUG_PRINTLN(F("MQTT_2_CONNECT_UNAUTHORIZED"));
+          break;
         }
         return 0;
       }
@@ -1019,7 +1176,6 @@ void readSettingsFromConfig() {
       return 0;
     }
   }
-
 
   void handleMQTT2State() {
     if (!MQTTClient2.connected()) {
