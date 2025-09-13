@@ -597,7 +597,9 @@ void PublishAllReports(void) {
   }
 
   Zone1Report();
-  Zone2Report();
+  if (HeatPump.Status.Has2Zone) {
+    Zone2Report();
+  }
   HotWaterReport();
   SystemReport();
   ConfigurationReport();
@@ -1038,6 +1040,14 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
     } else if (Payload.toInt() == 998) {
       DEBUG_PRINTLN(F("Disconnecting from FTC"));
       HeatPump.Disconnect();
+    } else if (Payload.toInt() == 997) {
+      DEBUG_PRINTLN(F("Republishing Home Assistant discovery"));
+      if (MQTTClient1.connected()) {
+        PublishDiscoveryTopics(1, MQTT_BASETOPIC);
+      }
+      if (MQTTClient2.connected()) {
+        PublishDiscoveryTopics(2, MQTT_2_BASETOPIC);
+      }
     } else {
       HeatPump.WriteServiceCodeCMD(Payload.toInt());
       SvcRequested = Payload.toInt();
@@ -1552,6 +1562,7 @@ void StatusReport(void) {
   JsonDocument doc;
   char Buffer[1024];
   char TmBuffer[32];
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
 
   doc[F("SSID")] = WiFi.SSID();
   doc[F("RSSI")] = WiFi.RSSI();
@@ -1576,7 +1587,9 @@ void StatusReport(void) {
   strftime(TmBuffer, sizeof(TmBuffer), "%FT%TZ",
            &HeatPump.Status.DateTimeStamp);
   doc[F("FTCTime")] = TmBuffer;
-  doc[F("UnitSize")] = String(unitSettings.UnitSize, 1);
+  if (!isCascadeSlave) {
+    doc[F("UnitSize")] = String(unitSettings.UnitSize, 1);
+  }
 
   if (round2(unitSettings.GlycolStrength) == 4.18) {
     doc[F("Glycol")] = "0%";
@@ -1716,18 +1729,30 @@ void SystemReport(void) {
   doc[F("FlowReturnDeltaT")] = HeatPump.Status.HeaterDeltaT;
   doc[F("OutsideTemp")] = HeatPump.Status.OutsideTemperature;
   doc[F("Defrost")] = DefrostModeString[HeatPump.Status.Defrost];
-  doc[F("InputPower")] = HeatPump.Status.InputPower;
-  doc[F("HeaterPower")] = HeatPump.Status.OutputPower;
-  doc[F("EstInputPower")] = round2(EstInputPower);
-  doc[F("EstCoolingInputPower")] = round2(EstCoolingInputPower);
-  doc[F("EstHeatingInputPower")] = round2(EstHeatingInputPower);
-  doc[F("EstDHWInputPower")] = round2(EstDHWInputPower);
-  doc[F("EstHeatOutputPower")] = round2(HeatOutputPower);
-  doc[F("EstHeatingOutputPower")] = round2(HeatingOutputPower);
-  doc[F("EstDHWOutputPower")] = round2(DHWOutputPower);
-  doc[F("EstCoolOutputPower")] = round2(CoolOutputPower);
-  doc[F("Instant_CoP")] = round2(Instant_CoP);
-  doc[F("Compressor")] = HeatPump.Status.CompressorFrequency;
+  if (!cascadeMode) {
+    doc[F("InputPower")] = HeatPump.Status.InputPower;
+    doc[F("HeaterPower")] = HeatPump.Status.OutputPower;
+  }
+  if (!cascadeMode) {
+    doc[F("EstInputPower")] = round2(EstInputPower);
+    doc[F("EstHeatingInputPower")] = round2(EstHeatingInputPower);
+    doc[F("EstDHWInputPower")] = round2(EstDHWInputPower);
+    doc[F("EstHeatOutputPower")] = round2(HeatOutputPower);
+    doc[F("EstHeatingOutputPower")] = round2(HeatingOutputPower);
+    doc[F("EstDHWOutputPower")] = round2(DHWOutputPower);
+    if (HeatPump.Status.HasCooling) {
+      doc[F("EstCoolingInputPower")] = round2(EstCoolingInputPower);
+      doc[F("EstCoolOutputPower")] = round2(CoolOutputPower);
+    }
+  }
+  if (!cascadeMode) {
+    doc[F("Instant_CoP")] = round2(Instant_CoP);
+  }
+  // In cascade master mode, suppress Compressor, FlowRate, RunHours
+  bool isCascadeMaster = (cascadeMode && mqttSettings.cascadeNodeId == 0);
+  if (!isCascadeMaster) {
+    doc[F("Compressor")] = HeatPump.Status.CompressorFrequency;
+  }
   doc[F("SystemPower")] =
       SystemPowerModeString[HeatPump.Status.SystemPowerMode];
   if (HeatPump.Status.Defrost == 2) {
@@ -1737,8 +1762,10 @@ void SystemReport(void) {
         SystemOperationModeString[HeatPump.Status.SystemOperationMode];
   }
   doc[F("HolidayMode")] = HeatPump.Status.HolidayModeActive;
-  doc[F("FlowRate")] = HeatPump.Status.PrimaryFlowRate;
-  doc[F("RunHours")] = HeatPump.Status.RunHours;
+  if (!isCascadeMaster) {
+    doc[F("FlowRate")] = HeatPump.Status.PrimaryFlowRate;
+    doc[F("RunHours")] = HeatPump.Status.RunHours;
+  }
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_SYSTEM.c_str(), Buffer, false);
@@ -1748,6 +1775,7 @@ void SystemReport(void) {
 void Zone1Report(void) {
   JsonDocument doc;
   char Buffer[512];
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
   doc[F("Temperature")] = HeatPump.Status.Zone1Temperature;
   doc[F("Setpoint")] = HeatPump.Status.Zone1TemperatureSetpoint;
   doc[F("HeatingControlMode")] =
@@ -1761,8 +1789,12 @@ void Zone1Report(void) {
   } else {
     doc[F("TwoZone_Z1Working")] = HeatPump.Status.TwoZone_Z1Working;
   }
-  doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ1;
-  doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ1;
+  if (!isCascadeSlave) {
+    doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ1;
+    if (HeatPump.Status.HasCooling) {
+      doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ1;
+    }
+  }
   doc[F("FlowTemp")] = HeatPump.Status.Zone1FlowTemperature;
   doc[F("ReturnTemp")] = HeatPump.Status.Zone1ReturnTemperature;
   doc[F("InputType")] = ThermostatString[HeatPump.Status.ThermostatZ1];
@@ -1775,14 +1807,19 @@ void Zone1Report(void) {
 void Zone2Report(void) {
   JsonDocument doc;
   char Buffer[512];
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
   doc[F("Temperature")] = HeatPump.Status.Zone2Temperature;
   doc[F("Setpoint")] = HeatPump.Status.Zone2TemperatureSetpoint;
   doc[F("HeatingControlMode")] =
       HeatingControlModeString[HeatPump.Status.HeatingControlModeZ2];
   doc[F("FSP")] = round2(HeatPump.Status.Zone2FlowTemperatureSetpoint);
   doc[F("TwoZone_Z2Working")] = HeatPump.Status.TwoZone_Z2Working;
-  doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ2;
-  doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ2;
+  if (!isCascadeSlave) {
+    doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ2;
+    if (HeatPump.Status.HasCooling) {
+      doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ2;
+    }
+  }
   doc[F("FlowTemp")] = HeatPump.Status.Zone2FlowTemperature;
   doc[F("ReturnTemp")] = HeatPump.Status.Zone2ReturnTemperature;
   doc[F("InputType")] = ThermostatString[HeatPump.Status.ThermostatZ2];
@@ -1795,17 +1832,24 @@ void Zone2Report(void) {
 void HotWaterReport(void) {
   JsonDocument doc;
   char Buffer[1024];
-  doc[F("Temperature")] = HeatPump.Status.HotWaterTemperature;
-  doc[F("TempTHW5A")] = HeatPump.Status.HotWaterTemperatureTHW5A;
-  doc[F("Setpoint")] = HeatPump.Status.HotWaterSetpoint;
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
+  if (!isCascadeSlave) {
+    doc[F("Temperature")] = HeatPump.Status.HotWaterTemperature;
+    doc[F("TempTHW5A")] = HeatPump.Status.HotWaterTemperatureTHW5A;
+    doc[F("Setpoint")] = HeatPump.Status.HotWaterSetpoint;
+  }
   doc[F("HotWaterBoostActive")] = HeatPump.Status.HotWaterBoostActive;
   doc[F("HotWaterEcoBoostActive")] = NormalHWBoostOperating;
-  doc[F("ProhibitDHW")] = HeatPump.Status.ProhibitDHW;
+  if (!isCascadeSlave) {
+    doc[F("ProhibitDHW")] = HeatPump.Status.ProhibitDHW;
+  }
   doc[F("DHWActive")] = HeatPump.Status.DHWActive;
-  doc[F("HotWaterControlMode")] =
-      HotWaterControlModeString[HeatPump.Status.HotWaterControlMode];
-  doc[F("LegionellaSetpoint")] = HeatPump.Status.LegionellaSetpoint;
-  doc[F("HotWaterMaxTDrop")] = HeatPump.Status.HotWaterMaximumTempDrop;
+  if (!isCascadeSlave) {
+    doc[F("HotWaterControlMode")] =
+        HotWaterControlModeString[HeatPump.Status.HotWaterControlMode];
+    doc[F("LegionellaSetpoint")] = HeatPump.Status.LegionellaSetpoint;
+    doc[F("HotWaterMaxTDrop")] = HeatPump.Status.HotWaterMaximumTempDrop;
+  }
   doc[F("HotWaterPhase")] = DHWPhaseString[HeatPump.Status.DHWHeatSourcePhase];
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
@@ -1816,6 +1860,8 @@ void HotWaterReport(void) {
 void ConfigurationReport(void) {
   JsonDocument doc;
   char Buffer[2048];
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
+  bool isCascadeMaster = (cascadeMode && mqttSettings.cascadeNodeId == 0);
   doc[F("DipSw1")] = decimalToBinary(HeatPump.Status.DipSwitch1);
   doc[F("DipSw2")] = decimalToBinary(HeatPump.Status.DipSwitch2);
   doc[F("DipSw3")] = decimalToBinary(HeatPump.Status.DipSwitch3);
@@ -1827,8 +1873,10 @@ void ConfigurationReport(void) {
   doc[F("HasSimple2Zone")] = HeatPump.Status.Simple2Zone;
   doc[F("RefrigerantType")] = HeatPump.Status.RefrigerantType;
   // Publish only when available
-  if (HeatPump.SVCPopulated || HeatPump.Status.CompOpTimes != 0) {
-    doc[F("CompOpTimes")] = HeatPump.Status.CompOpTimes;
+  if (!isCascadeSlave && ! (cascadeMode && mqttSettings.cascadeNodeId == 0)) {
+    if (HeatPump.SVCPopulated || HeatPump.Status.CompOpTimes != 0) {
+      doc[F("CompOpTimes")] = HeatPump.Status.CompOpTimes;
+    }
   }
   if (HeatPump.SVCPopulated || HeatPump.Status.LiquidTemp != 0) {
     doc[F("LiquidTemp")] = HeatPump.Status.LiquidTemp;
@@ -1851,11 +1899,15 @@ void ConfigurationReport(void) {
   if (HeatPump.SVCPopulated || HeatPump.Status.TH32Pipe != 0) {
     doc[F("TH32Pipe")] = HeatPump.Status.TH32Pipe;
   }
-  if (HeatPump.SVCPopulated || HeatPump.Status.Fan1RPM != 0) {
-    doc[F("Fan1RPM")] = HeatPump.Status.Fan1RPM;
+  if (!isCascadeMaster) {
+    if (HeatPump.SVCPopulated || HeatPump.Status.Fan1RPM != 0) {
+      doc[F("Fan1RPM")] = HeatPump.Status.Fan1RPM;
+    }
   }
-  if (HeatPump.SVCPopulated || HeatPump.Status.Fan2RPM != 0) {
-    doc[F("Fan2RPM")] = HeatPump.Status.Fan2RPM;
+  if (!isCascadeMaster) {
+    if (HeatPump.SVCPopulated || HeatPump.Status.Fan2RPM != 0) {
+      doc[F("Fan2RPM")] = HeatPump.Status.Fan2RPM;
+    }
   }
   if (HeatPump.SVCPopulated || HeatPump.Status.LEVA != 0) {
     doc[F("LEVA")] = HeatPump.Status.LEVA;
@@ -1875,23 +1927,30 @@ void ConfigurationReport(void) {
 void AdvancedReport(void) {
   JsonDocument doc;
   char Buffer[1024];
-  doc[F("FlowTMax")] = HeatPump.Status.FlowTempMax;
-  doc[F("FlowTMin")] = HeatPump.Status.FlowTempMin;
-  doc[F("BoilerFlow")] = HeatPump.Status.ExternalBoilerFlowTemperature;
-  doc[F("BoilerReturn")] = HeatPump.Status.ExternalBoilerReturnTemperature;
+  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
+  if (!isCascadeSlave) {
+    doc[F("FlowTMax")] = HeatPump.Status.FlowTempMax;
+    doc[F("FlowTMin")] = HeatPump.Status.FlowTempMin;
+    doc[F("BoilerFlow")] = HeatPump.Status.ExternalBoilerFlowTemperature;
+    doc[F("BoilerReturn")] = HeatPump.Status.ExternalBoilerReturnTemperature;
+  }
   doc[F("MixingTemp")] = HeatPump.Status.MixingTemperature;
   doc[F("MixingStep")] = HeatPump.Status.MixingStep;
-  doc[F("Immersion")] = OFF_ON_String[HeatPump.Status.ImmersionActive];
-  doc[F("Booster")] = OFF_ON_String[HeatPump.Status.Booster1Active];
-  doc[F("Booster2")] = OFF_ON_String[HeatPump.Status.Booster2Active];
+  if (!isCascadeSlave) {
+    doc[F("Immersion")] = OFF_ON_String[HeatPump.Status.ImmersionActive];
+    doc[F("Booster")] = OFF_ON_String[HeatPump.Status.Booster1Active];
+    doc[F("Booster2")] = OFF_ON_String[HeatPump.Status.Booster2Active];
+  }
   doc[F("ThreeWayValve")] = HeatPump.Status.ThreeWayValve;
   doc[F("PrimaryWaterPump")] = OFF_ON_String[HeatPump.Status.PrimaryWaterPump];
   doc[F("RefrigeTemp")] = HeatPump.Status.RefrigeTemp;
   doc[F("CondensingTemp")] = HeatPump.Status.CondensingTemp;
   doc[F("HeatingActive")] =
       HeatingRunningBinary[HeatPump.Status.SystemOperationMode];
-  doc[F("CoolingActive")] =
-      CoolingRunningBinary[HeatPump.Status.SystemOperationMode];
+  if (HeatPump.Status.HasCooling) {
+    doc[F("CoolingActive")] =
+        CoolingRunningBinary[HeatPump.Status.SystemOperationMode];
+  }
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_ADVANCED.c_str(), Buffer, false);
@@ -1930,8 +1989,10 @@ void AdvancedTwoReport(void) {
   }
   doc[F("Z1TstatDemand")] =
       OFF_ON_String[HeatPump.Status.Zone1ThermostatDemand];
-  doc[F("Z2TstatDemand")] =
-      OFF_ON_String[HeatPump.Status.Zone2ThermostatDemand];
+  if (HeatPump.Status.Has2Zone) {
+    doc[F("Z2TstatDemand")] =
+        OFF_ON_String[HeatPump.Status.Zone2ThermostatDemand];
+  }
   doc[F("OTstatDemand")] =
       OFF_ON_String[HeatPump.Status.OutdoorThermostatDemand];
   doc[F("OpMode")] = HPControlModeString[HeatPump.Status.HeatCool];
@@ -1998,19 +2059,33 @@ void EnergyReport(void) {
     total_cop = 0;
   }
 
-  // Write into the JSON with 2dp rounding
-  doc[F("CHEAT")] = round2(HeatPump.Status.ConsumedHeatingEnergy);
-  doc[F("CCOOL")] = round2(HeatPump.Status.ConsumedCoolingEnergy);
-  doc[F("CDHW")] = round2(HeatPump.Status.ConsumedHotWaterEnergy);
-  doc[F("DHEAT")] = round2(HeatPump.Status.DeliveredHeatingEnergy);
-  doc[F("DCOOL")] = round2(HeatPump.Status.DeliveredCoolingEnergy);
-  doc[F("DDHW")] = round2(HeatPump.Status.DeliveredHotWaterEnergy);
-  doc[F("CTOTAL")] = round2(ctotal);
-  doc[F("DTOTAL")] = round2(dtotal);
-  doc[F("HEAT_CoP")] = round2(heat_cop);
-  doc[F("COOL_CoP")] = round2(cool_cop);
-  doc[F("DHW_CoP")] = round2(dhw_cop);
-  doc[F("TOTAL_CoP")] = round2(total_cop);
+  // Write into the JSON with 2dp rounding (disabled in cascade mode)
+  if (!cascadeMode) {
+    doc[F("CHEAT")] = round2(HeatPump.Status.ConsumedHeatingEnergy);
+    if (HeatPump.Status.HasCooling) {
+      doc[F("CCOOL")] = round2(HeatPump.Status.ConsumedCoolingEnergy);
+    }
+    doc[F("CDHW")] = round2(HeatPump.Status.ConsumedHotWaterEnergy);
+    doc[F("DHEAT")] = round2(HeatPump.Status.DeliveredHeatingEnergy);
+    if (HeatPump.Status.HasCooling) {
+      doc[F("DCOOL")] = round2(HeatPump.Status.DeliveredCoolingEnergy);
+    }
+    doc[F("DDHW")] = round2(HeatPump.Status.DeliveredHotWaterEnergy);
+    doc[F("CTOTAL")] = round2(ctotal);
+    doc[F("DTOTAL")] = round2(dtotal);
+  }
+  if (!cascadeMode) {
+    doc[F("HEAT_CoP")] = round2(heat_cop);
+  }
+  if (!cascadeMode && HeatPump.Status.HasCooling) {
+    doc[F("COOL_CoP")] = round2(cool_cop);
+  }
+  if (!cascadeMode) {
+    doc[F("DHW_CoP")] = round2(dhw_cop);
+  }
+  if (!cascadeMode) {
+    doc[F("TOTAL_CoP")] = round2(total_cop);
+  }
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_ENERGY.c_str(), Buffer, false);

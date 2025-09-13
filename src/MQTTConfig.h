@@ -696,12 +696,182 @@ void readSettingsFromConfig() {
     // JSON Formation
     JsonDocument Config;
 
+    // If cascade master, proactively delete Fan 1/2 Speed discovery
+    // by publishing empty retained configs for their topics.
+    if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId == 0) {
+      String sensorPrefix = String(MQTT_DISCOVERY_TOPICS[0]); // homeassistant/sensor/
+      String cfgSuffix = String(MQTT_DISCOVERY_TOPICS[5]);    // /config
+      String delFan1 = sensorPrefix + ChipID + "eg" + cfgSuffix; // Fan 1 Speed
+      String delFan2 = sensorPrefix + ChipID + "eh" + cfgSuffix; // Fan 2 Speed
+      if (MQTTStream == 1) {
+        MQTTClient1.publish(delFan1.c_str(), "", true);
+        MQTTClient1.publish(delFan2.c_str(), "", true);
+      } else if (MQTTStream == 2) {
+        MQTTClient2.publish(delFan1.c_str(), "", true);
+        MQTTClient2.publish(delFan2.c_str(), "", true);
+      }
+    }
+
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
 
       // Skip publishing Holiday Mode entity when cascade is enabled
       // Holiday Mode corresponds to discovery index i == 103 (switches group)
       if (mqttSettings.cascadeEnabled && i == 103) {
+        continue;
+      }
+
+      // If device is not 2-zone, remove all Zone 2 entities by name
+      if (!HeatPump.Status.Has2Zone) {
+        String sensorName = String(MQTT_SENSOR_NAME[i]);
+        if (sensorName.indexOf("Zone 2") >= 0) {
+          int topicPrefixIndex = 0; // default to sensor
+          if (i >= 96 && i < 101) topicPrefixIndex = 1;      // climate
+          else if (i >= 101 && i < 111) topicPrefixIndex = 2; // switch
+          else if (i >= 111 && i < 116) topicPrefixIndex = 4; // select
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[topicPrefixIndex]) +
+                            ChipID + String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
+      }
+
+      // If device has no cooling, remove cooling-related sensors/switches
+      if (!HeatPump.Status.HasCooling) {
+        String sensorName = String(MQTT_SENSOR_NAME[i]);
+        bool coolingName = (sensorName.indexOf("Cooling") >= 0);
+        // Only purge non-climate/select entries; climate retains heat/off modes
+        bool isSensor = (i >= 0 && i < 96);
+        bool isSwitch = (i >= 101 && i < 111);
+        if (coolingName && (isSensor || isSwitch)) {
+          int topicPrefixIndex = isSwitch ? 2 : 0; // switch or sensor
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[topicPrefixIndex]) +
+                            ChipID + String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
+      }
+
+      // If cascade is enabled and this is a slave node, remove selected controls
+      if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0) {
+        String name = String(MQTT_SENSOR_NAME[i]);
+        bool match = false;
+        // Thermostats (DHW/Z1/Z2 and flow thermostats)
+        if (name.indexOf("Thermostat") >= 0) match = true;
+        // Operation modes for zones and DHW
+        if (name == "DHW Mode" ||
+            name == "Heating/Cooling Operation Mode Zone 1" ||
+            name == "Heating/Cooling Operation Mode Zone 2") match = true;
+        // System/Server controls
+        if (name == "System Power" || name == "Server Control Mode") match = true;
+        // DHW boost controls
+        if (name == "DHW Boost" || name == "Fast DHW Boost") match = true;
+        // Prohibit controls (DHW, Z1/Z2 Heating/Cooling)
+        if (name == "Prohibit DHW" || name == "Prohibit Zone 1 Heating" ||
+            name == "Prohibit Zone 1 Cooling" || name == "Prohibit Zone 2 Heating" ||
+            name == "Prohibit Zone 2 Cooling") match = true;
+        // Immersion Heater, Booster Heaters
+        if (name == "Immersion Heater" || name == "Booster Heater 1" ||
+            name == "Booster Heater 2") match = true;
+        // Max/Min Flow Temperature
+        if (name == "Max Flow Temperature" || name == "Min Flow Temperature") match = true;
+        // Boiler Flow/Return Temperatures
+        if (name == "Boiler Flow Temperature" || name == "Boiler Return Temperature") match = true;
+        // DHW sensors
+        if (name == "DHW Control Mode" || name == "DHW Temperature" ||
+            name == "DHW Temperature Upper" || name == "Legionella Setpoint" ||
+            name == "DHW Max Temperature Drop") match = true;
+        // Flow setpoints sensors
+        if (name == "Zone 1 Flow Setpoint" || name == "Zone 2 Flow Setpoint") match = true;
+        // Unit size and Glycol strength selects
+        if (name == "Outdoor Unit Size (kW)" || name == "Glycol Strength") match = true;
+
+        if (match) {
+          int topicPrefixIndex = 0; // sensor by default
+          if (i >= 96 && i < 101) topicPrefixIndex = 1;      // climate
+          else if (i >= 101 && i < 111) topicPrefixIndex = 2; // switch
+          else if (i >= 111 && i < 116) topicPrefixIndex = 4; // select
+
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[topicPrefixIndex]) +
+                            ChipID + String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
+      }
+      // If cascade mode is enabled, remove CoP- and energy-related sensors by name
+      // (any name containing 'Computed', 'Consumed', 'Delivered', or exact 'Instant CoP',
+      //  'Heating CoP Yesterday', 'Cooling CoP Yesterday', 'DHW CoP Yesterday',
+      //  'Total CoP Yesterday', as well as 'Heat Pump Input Power' and
+      //  'Heat Pump Output Power')
+      if (mqttSettings.cascadeEnabled) {
+        String sensorName = String(MQTT_SENSOR_NAME[i]);
+        bool nameMatch = (sensorName.indexOf("Computed") >= 0 ||
+                          sensorName.indexOf("Consumed") >= 0 ||
+                          sensorName.indexOf("Delivered") >= 0 ||
+                          sensorName == "Instant CoP" ||
+                          sensorName == "Heat Pump Input Power" ||
+                          sensorName == "Heat Pump Output Power" ||
+                          sensorName == "Heating CoP Yesterday" ||
+                          sensorName == "Cooling CoP Yesterday" ||
+                          sensorName == "DHW CoP Yesterday" ||
+                          sensorName == "Total CoP Yesterday");
+        if (nameMatch) {
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                            String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
+      }
+
+      // If cascade mode is enabled, remove Heating CoP and DHW CoP discovery
+      // entities by publishing empty retained configs. These correspond to
+      // indices 47 (Heating CoP Yesterday) and 49 (DHW CoP Yesterday).
+      if (mqttSettings.cascadeEnabled && (i == 47 || i == 49)) {
+        String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                          String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                          String(MQTT_DISCOVERY_TOPICS[5]);
+        if (MQTTStream == 1) {
+          MQTTClient1.publish(delTopic.c_str(), "", true);
+        } else if (MQTTStream == 2) {
+          MQTTClient2.publish(delTopic.c_str(), "", true);
+        }
+        continue;
+      }
+
+      // When cascade is enabled on the master node (nodeId == 0),
+      // remove previously discovered Compressor Frequency, Flow Rate, Run Hours
+      // (indices 10, 11, 12) and Compressor Start Quantity (by name match)
+      // by publishing an empty retained config on their discovery topics.
+      if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId == 0 &&
+          (i == 10 || i == 11 || i == 12 || String(MQTT_SENSOR_NAME[i]) == "Compressor Start Quantity")) {
+        String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                          String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                          String(MQTT_DISCOVERY_TOPICS[5]);
+        if (MQTTStream == 1) {
+          MQTTClient1.publish(delTopic.c_str(), "", true);
+        } else if (MQTTStream == 2) {
+          MQTTClient2.publish(delTopic.c_str(), "", true);
+        }
         continue;
       }
 
@@ -787,8 +957,11 @@ void readSettingsFromConfig() {
           Config["modes"][1] = "off";
         } else {
           Config["modes"][0] = "heat";
-          Config["modes"][1] = "cool";
-          Config["modes"][2] = "off";
+          int m = 1;
+          if (HeatPump.Status.HasCooling) {
+            Config["modes"][m++] = "cool";
+          }
+          Config["modes"][m] = "off";
           Config["mode_command_template"] = String(MQTT_CLIMATE_MODE[0]);
           Config["mode_command_topic"] = BASETOPIC + String(MQTT_TOPIC[9]);
         }
@@ -846,12 +1019,15 @@ void readSettingsFromConfig() {
           Config["options"][2] = "20%";
           Config["options"][3] = "30%";
         } else { // Zone Options
-          Config["options"][0] = "Heating Temperature";
-          Config["options"][1] = "Heating Flow";
-          Config["options"][2] = "Heating Compensation";
-          Config["options"][3] = "Cooling Temperature";
-          Config["options"][4] = "Cooling Flow";
-          Config["options"][5] = "Dry Up";
+          int idx = 0;
+          Config["options"][idx++] = "Heating Temperature";
+          Config["options"][idx++] = "Heating Flow";
+          Config["options"][idx++] = "Heating Compensation";
+          if (HeatPump.Status.HasCooling) {
+            Config["options"][idx++] = "Cooling Temperature";
+            Config["options"][idx++] = "Cooling Flow";
+          }
+          Config["options"][idx++] = "Dry Up";
         }
         MQTT_DISCOVERY_TOPIC = String(MQTT_DISCOVERY_TOPICS[4]);
       }
@@ -911,29 +1087,58 @@ void readSettingsFromConfig() {
     DEBUG_PRINTLN(F("MQTT ON CONNECT"));
     MQTTClient1.publish(MQTT_LWT.c_str(), "online");
     delay(10);
+    bool isCascadeSlave = (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0);
 
-    MQTTClient1.subscribe(MQTTCommandZone1FlowSetpoint.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone1NoModeSetpoint.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone1ProhibitHeating.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone1ProhibitCooling.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone1HeatingMode.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone2FlowSetpoint.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone2NoModeSetpoint.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone2ProhibitHeating.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone2ProhibitCooling.c_str());
-    MQTTClient1.subscribe(MQTTCommandZone2HeatingMode.c_str());
-    MQTTClient1.subscribe(MQTTCommandHotwaterMode.c_str());
-    MQTTClient1.subscribe(MQTTCommandHotwaterSetpoint.c_str());
-    MQTTClient1.subscribe(MQTTCommandHotwaterBoost.c_str());
-    MQTTClient1.subscribe(MQTTCommandHotwaterNormalBoost.c_str());
-    MQTTClient1.subscribe(MQTTCommandHotwaterProhibit.c_str());
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandZone1FlowSetpoint.c_str());
+      MQTTClient1.subscribe(MQTTCommandZone1NoModeSetpoint.c_str());
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandZone1ProhibitHeating.c_str());
+      if (HeatPump.Status.HasCooling) {
+        MQTTClient1.subscribe(MQTTCommandZone1ProhibitCooling.c_str());
+      }
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandZone1HeatingMode.c_str());
+    }
+    if (HeatPump.Status.Has2Zone) {
+      if (!isCascadeSlave) {
+        MQTTClient1.subscribe(MQTTCommandZone2FlowSetpoint.c_str());
+        MQTTClient1.subscribe(MQTTCommandZone2NoModeSetpoint.c_str());
+      }
+      if (!isCascadeSlave) {
+        MQTTClient1.subscribe(MQTTCommandZone2ProhibitHeating.c_str());
+        if (HeatPump.Status.HasCooling) {
+          MQTTClient1.subscribe(MQTTCommandZone2ProhibitCooling.c_str());
+        }
+      }
+      if (!isCascadeSlave) {
+        MQTTClient1.subscribe(MQTTCommandZone2HeatingMode.c_str());
+      }
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandHotwaterMode.c_str());
+      MQTTClient1.subscribe(MQTTCommandHotwaterSetpoint.c_str());
+      MQTTClient1.subscribe(MQTTCommandHotwaterBoost.c_str());
+      MQTTClient1.subscribe(MQTTCommandHotwaterNormalBoost.c_str());
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandHotwaterProhibit.c_str());
+    }
     if (!mqttSettings.cascadeEnabled) {
       MQTTClient1.subscribe(MQTTCommandSystemHolidayMode.c_str());
     }
-    MQTTClient1.subscribe(MQTTCommandSystemPower.c_str());
-    MQTTClient1.subscribe(MQTTCommandSystemSvrMode.c_str());
-    MQTTClient1.subscribe(MQTTCommandSystemUnitSize.c_str());
-    MQTTClient1.subscribe(MQTTCommandSystemGlycol.c_str());
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandSystemPower.c_str());
+      MQTTClient1.subscribe(MQTTCommandSystemSvrMode.c_str());
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandSystemUnitSize.c_str());
+    }
+    if (!isCascadeSlave) {
+      MQTTClient1.subscribe(MQTTCommandSystemGlycol.c_str());
+    }
     MQTTClient1.subscribe(MQTTCommandSystemService.c_str());
     MQTTClient1.subscribe(MQTTCommandSystemCompCurve.c_str());
 

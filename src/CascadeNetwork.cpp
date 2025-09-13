@@ -104,7 +104,7 @@ void CascadeNetwork::process() {
 void CascadeNetwork::announcePresence() {
   if (!mqttClient || !mqttClient->connected()) return;
   
-  DynamicJsonDocument doc(512);
+  JsonDocument doc;
   doc["node_id"] = localNodeId;
   doc["node_type"] = (localNodeType == CASCADE_NODE_MASTER) ? "master" : "slave";
   doc["node_name"] = localNodeName;
@@ -133,7 +133,7 @@ void CascadeNetwork::announcePresence() {
 void CascadeNetwork::sendHeartbeat() {
   if (!mqttClient || !mqttClient->connected()) return;
   
-  DynamicJsonDocument doc(256);
+  JsonDocument doc;
   doc["node_id"] = localNodeId;
   doc["timestamp"] = millis();
   doc["status"] = "online";
@@ -152,7 +152,7 @@ void CascadeNetwork::sendHeartbeat() {
 void CascadeNetwork::publishLocalData() {
   if (!mqttClient || !mqttClient->connected() || !localUnit) return;
   
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["node_id"] = localNodeId;
   doc["timestamp"] = millis();
   
@@ -190,7 +190,7 @@ void CascadeNetwork::publishLocalData() {
 }
 
 void CascadeNetwork::handleRemoteData(const String& topic, const String& payload) {
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, payload);
   
   if (error) {
@@ -240,7 +240,7 @@ void CascadeNetwork::processNodeAnnouncement(const JsonDocument& doc) {
     nodes[nodeIndex].status = CASCADE_NODE_ONLINE;
     nodes[nodeIndex].lastSeen = millis();
     
-    if (doc.containsKey("unit_capacity")) {
+    if (doc["unit_capacity"].is<float>()) {
       nodes[nodeIndex].unitCapacity = doc["unit_capacity"];
     }
     
@@ -274,19 +274,19 @@ void CascadeNetwork::processNodeData(const JsonDocument& doc) {
       nodes[i].lastSeen = millis();
       
       // Update unit-specific data
-      if (doc.containsKey("fan_speed")) {
+      if (doc["fan_speed"].is<uint8_t>()) {
         nodes[i].fanSpeed = doc["fan_speed"];
       }
-      if (doc.containsKey("compressor_frequency")) {
+      if (doc["compressor_frequency"].is<uint8_t>()) {
         nodes[i].compressorFrequency = doc["compressor_frequency"];
       }
-      if (doc.containsKey("compressor_starts")) {
+      if (doc["compressor_starts"].is<uint16_t>()) {
         nodes[i].compressorStarts = doc["compressor_starts"];
       }
-      if (doc.containsKey("unit_power")) {
+      if (doc["unit_power"].is<float>()) {
         nodes[i].unitPower = doc["unit_power"];
       }
-      if (doc.containsKey("error_code")) {
+      if (doc["error_code"].is<int16_t>()) {
         nodes[i].errorCode = doc["error_code"];
       }
       
@@ -315,7 +315,7 @@ void CascadeNetwork::sendSystemCommand(const String& command, const String& valu
   // Only master can send system commands
   if (!isMasterNode() || !mqttClient || !mqttClient->connected()) return;
   
-  DynamicJsonDocument doc(256);
+  JsonDocument doc;
   doc["command"] = command;
   doc["value"] = value;
   doc["timestamp"] = millis();
@@ -336,7 +336,7 @@ void CascadeNetwork::sendSystemCommand(const String& command, const String& valu
 void CascadeNetwork::broadcastSystemStatus() {
   if (!isMasterNode() || !mqttClient || !mqttClient->connected()) return;
   
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["master_node"] = localNodeId;
   doc["online_nodes"] = getOnlineNodes();
   doc["total_capacity"] = getTotalSystemCapacity();
@@ -345,10 +345,10 @@ void CascadeNetwork::broadcastSystemStatus() {
   doc["active_units"] = getActiveUnits();
   
   // Add individual node status
-  JsonArray nodeArray = doc.createNestedArray("nodes");
+  JsonArray nodeArray = doc["nodes"].to<JsonArray>();
   for (uint8_t i = 0; i < knownNodes; i++) {
     if (nodes[i].status != CASCADE_NODE_OFFLINE) {
-      JsonObject nodeObj = nodeArray.createNestedObject();
+      JsonObject nodeObj = nodeArray.add<JsonObject>();
       nodeObj["id"] = nodes[i].nodeId;
       nodeObj["name"] = nodes[i].nodeName;
       nodeObj["type"] = (nodes[i].nodeType == CASCADE_NODE_MASTER) ? "master" : "slave";
