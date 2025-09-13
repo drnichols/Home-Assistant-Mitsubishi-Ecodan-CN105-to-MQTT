@@ -46,6 +46,7 @@
 #include <WiFiManager.h>
 // Cascade system includes
 #include "CascadeNetwork.h"
+#include "Flags.h"
 
 // Project headers below will be included after struct definitions
 
@@ -210,6 +211,18 @@ bool cascadeMode = false;
 unsigned long lastCascadeUpdate = 0;
 const unsigned long cascadeUpdateInterval = 5000; // 5 seconds
 
+// Flags helper implementations (after globals exist in this TU)
+namespace Flags {
+  bool CascadeEnabled() { return mqttSettings.cascadeEnabled; }
+  bool CascadeActive() { return cascadeMode; }
+  bool CascadeMaster() { return CascadeActive() && mqttSettings.cascadeNodeId == 0; }
+  bool CascadeSlave() { return CascadeActive() && mqttSettings.cascadeNodeId != 0; }
+  bool ConfigCascadeMaster() { return mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId == 0; }
+  bool ConfigCascadeSlave() { return mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0; }
+  bool HasCooling() { return HeatPump.Status.HasCooling; }
+  bool Has2Zone() { return HeatPump.Status.Has2Zone; }
+}
+
 // WiFiManager parameters (including cascade option)
 WiFiManagerParameter custom_mqtt_server("server",
                                         "<b>Required</b> Primary MQTT Server",
@@ -245,8 +258,8 @@ WiFiManagerParameter custom_device_id("device_id", "<hr>Device ID", "TEMP", 15);
 
 // Implement dynamic checkbox rendering after MqttSettings is defined
 const char *CascadeCheckboxParameter::getCustomHTML() const {
-  return mqttSettings.cascadeEnabled ? "type='checkbox' checked value='true'"
-                                     : "type='checkbox' value='true'";
+  return Flags::CascadeEnabled() ? "type='checkbox' checked value='true'"
+                                 : "type='checkbox' value='true'";
 }
 
 // Function declarations
@@ -388,7 +401,7 @@ void setup() {
   // Check if cascade mode is enabled
   cascadeMode = mqttSettings.cascadeEnabled;
 
-  if (cascadeMode) {
+  if (Flags::CascadeActive()) {
     DEBUG_PRINTLN("Cascade mode enabled - initializing cascade system");
     initializeCascadeSystem();
   } else {
@@ -417,7 +430,7 @@ void setup() {
   MQTTClient2.setCallback(MQTTonData);
 
   // Initialize cascade MQTT if enabled
-  if (cascadeMode) {
+  if (Flags::CascadeActive()) {
     cascadeNetwork.setMQTTClient(&MQTTClient1, String(mqttSettings.baseTopic));
   }
 
@@ -446,7 +459,7 @@ void loop() {
   HeatPumpQuery7.Process();
 
   // Process cascade system if enabled
-  if (cascadeMode) {
+  if (Flags::CascadeActive()) {
     CascadeQuery1.Process();
     processCascadeSystem();
   }
@@ -457,7 +470,7 @@ void loop() {
   MQTTClient2.loop();
   TelnetServer.loop();
 
-  if (cascadeMode) {
+  if (Flags::CascadeActive()) {
     // In cascade mode, process network
     cascadeNetwork.process();
   } else {
@@ -491,7 +504,7 @@ void loop() {
       postwrpreviousMillis = millis();
     } // Dequeue the last message that was written
     if (MQTTReconnect() || MQTT2Reconnect()) {
-      if (cascadeMode) {
+      if (Flags::CascadeActive()) {
         publishCascadeReports();
       } else {
         PublishAllReports();
@@ -574,7 +587,7 @@ void initializeCascadeSystem() {
 void processCascadeSystem() { cascadeNetwork.process(); }
 
 void CascadeUpdateEngine() {
-  if (!cascadeMode)
+  if (!Flags::CascadeActive())
     return;
 
   // Network processing is handled in processCascadeSystem()
@@ -597,7 +610,7 @@ void PublishAllReports(void) {
   }
 
   Zone1Report();
-  if (HeatPump.Status.Has2Zone) {
+  if (Flags::Has2Zone()) {
     Zone2Report();
   }
   HotWaterReport();
@@ -944,7 +957,7 @@ void HeatPumpQueryStateEngine(void) {
       HeatPump.SVCUpdateComplete();
       HeatPump.StatusSVCMachine(); // Call service codes
       if (MQTTReconnect() || MQTT2Reconnect()) {
-        if (cascadeMode) {
+        if (Flags::CascadeActive()) {
           publishCascadeReports();
         } else {
           PublishAllReports();
@@ -1020,7 +1033,7 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
   DEBUG_PRINTLN(Payload.c_str());
 
   // Check if this is a cascade network message
-  if (cascadeMode && Topic.indexOf("/cascade/") >= 0) {
+  if (Flags::CascadeActive() && Topic.indexOf("/cascade/") >= 0) {
     cascadeNetwork.handleRemoteData(Topic, Payload);
     return;
   }
@@ -1562,7 +1575,6 @@ void StatusReport(void) {
   JsonDocument doc;
   char Buffer[1024];
   char TmBuffer[32];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
 
   doc[F("SSID")] = WiFi.SSID();
   doc[F("RSSI")] = WiFi.RSSI();
@@ -1587,7 +1599,7 @@ void StatusReport(void) {
   strftime(TmBuffer, sizeof(TmBuffer), "%FT%TZ",
            &HeatPump.Status.DateTimeStamp);
   doc[F("FTCTime")] = TmBuffer;
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("UnitSize")] = String(unitSettings.UnitSize, 1);
   }
 
@@ -1729,29 +1741,30 @@ void SystemReport(void) {
   doc[F("FlowReturnDeltaT")] = HeatPump.Status.HeaterDeltaT;
   doc[F("OutsideTemp")] = HeatPump.Status.OutsideTemperature;
   doc[F("Defrost")] = DefrostModeString[HeatPump.Status.Defrost];
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("InputPower")] = HeatPump.Status.InputPower;
     doc[F("HeaterPower")] = HeatPump.Status.OutputPower;
   }
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("EstInputPower")] = round2(EstInputPower);
     doc[F("EstHeatingInputPower")] = round2(EstHeatingInputPower);
     doc[F("EstDHWInputPower")] = round2(EstDHWInputPower);
     doc[F("EstHeatOutputPower")] = round2(HeatOutputPower);
     doc[F("EstHeatingOutputPower")] = round2(HeatingOutputPower);
     doc[F("EstDHWOutputPower")] = round2(DHWOutputPower);
-    if (HeatPump.Status.HasCooling) {
+    if (Flags::HasCooling()) {
       doc[F("EstCoolingInputPower")] = round2(EstCoolingInputPower);
       doc[F("EstCoolOutputPower")] = round2(CoolOutputPower);
     }
   }
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("Instant_CoP")] = round2(Instant_CoP);
   }
   // In cascade master mode, suppress Compressor, FlowRate, RunHours
-  bool isCascadeMaster = (cascadeMode && mqttSettings.cascadeNodeId == 0);
-  if (!isCascadeMaster) {
+  if (!Flags::CascadeMaster()) {
     doc[F("Compressor")] = HeatPump.Status.CompressorFrequency;
+    doc[F("FlowRate")] = HeatPump.Status.PrimaryFlowRate;
+    doc[F("RunHours")] = HeatPump.Status.RunHours;
   }
   doc[F("SystemPower")] =
       SystemPowerModeString[HeatPump.Status.SystemPowerMode];
@@ -1762,10 +1775,6 @@ void SystemReport(void) {
         SystemOperationModeString[HeatPump.Status.SystemOperationMode];
   }
   doc[F("HolidayMode")] = HeatPump.Status.HolidayModeActive;
-  if (!isCascadeMaster) {
-    doc[F("FlowRate")] = HeatPump.Status.PrimaryFlowRate;
-    doc[F("RunHours")] = HeatPump.Status.RunHours;
-  }
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_SYSTEM.c_str(), Buffer, false);
@@ -1775,7 +1784,6 @@ void SystemReport(void) {
 void Zone1Report(void) {
   JsonDocument doc;
   char Buffer[512];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
   doc[F("Temperature")] = HeatPump.Status.Zone1Temperature;
   doc[F("Setpoint")] = HeatPump.Status.Zone1TemperatureSetpoint;
   doc[F("HeatingControlMode")] =
@@ -1789,9 +1797,9 @@ void Zone1Report(void) {
   } else {
     doc[F("TwoZone_Z1Working")] = HeatPump.Status.TwoZone_Z1Working;
   }
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ1;
-    if (HeatPump.Status.HasCooling) {
+    if (Flags::HasCooling()) {
       doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ1;
     }
   }
@@ -1807,16 +1815,15 @@ void Zone1Report(void) {
 void Zone2Report(void) {
   JsonDocument doc;
   char Buffer[512];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
   doc[F("Temperature")] = HeatPump.Status.Zone2Temperature;
   doc[F("Setpoint")] = HeatPump.Status.Zone2TemperatureSetpoint;
   doc[F("HeatingControlMode")] =
       HeatingControlModeString[HeatPump.Status.HeatingControlModeZ2];
   doc[F("FSP")] = round2(HeatPump.Status.Zone2FlowTemperatureSetpoint);
   doc[F("TwoZone_Z2Working")] = HeatPump.Status.TwoZone_Z2Working;
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("ProhibitHeating")] = HeatPump.Status.ProhibitHeatingZ2;
-    if (HeatPump.Status.HasCooling) {
+    if (Flags::HasCooling()) {
       doc[F("ProhibitCooling")] = HeatPump.Status.ProhibitCoolingZ2;
     }
   }
@@ -1832,19 +1839,18 @@ void Zone2Report(void) {
 void HotWaterReport(void) {
   JsonDocument doc;
   char Buffer[1024];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("Temperature")] = HeatPump.Status.HotWaterTemperature;
     doc[F("TempTHW5A")] = HeatPump.Status.HotWaterTemperatureTHW5A;
     doc[F("Setpoint")] = HeatPump.Status.HotWaterSetpoint;
   }
   doc[F("HotWaterBoostActive")] = HeatPump.Status.HotWaterBoostActive;
   doc[F("HotWaterEcoBoostActive")] = NormalHWBoostOperating;
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("ProhibitDHW")] = HeatPump.Status.ProhibitDHW;
   }
   doc[F("DHWActive")] = HeatPump.Status.DHWActive;
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("HotWaterControlMode")] =
         HotWaterControlModeString[HeatPump.Status.HotWaterControlMode];
     doc[F("LegionellaSetpoint")] = HeatPump.Status.LegionellaSetpoint;
@@ -1860,8 +1866,6 @@ void HotWaterReport(void) {
 void ConfigurationReport(void) {
   JsonDocument doc;
   char Buffer[2048];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
-  bool isCascadeMaster = (cascadeMode && mqttSettings.cascadeNodeId == 0);
   doc[F("DipSw1")] = decimalToBinary(HeatPump.Status.DipSwitch1);
   doc[F("DipSw2")] = decimalToBinary(HeatPump.Status.DipSwitch2);
   doc[F("DipSw3")] = decimalToBinary(HeatPump.Status.DipSwitch3);
@@ -1873,7 +1877,7 @@ void ConfigurationReport(void) {
   doc[F("HasSimple2Zone")] = HeatPump.Status.Simple2Zone;
   doc[F("RefrigerantType")] = HeatPump.Status.RefrigerantType;
   // Publish only when available
-  if (!isCascadeSlave && ! (cascadeMode && mqttSettings.cascadeNodeId == 0)) {
+  if (!Flags::CascadeActive()) {
     if (HeatPump.SVCPopulated || HeatPump.Status.CompOpTimes != 0) {
       doc[F("CompOpTimes")] = HeatPump.Status.CompOpTimes;
     }
@@ -1899,12 +1903,10 @@ void ConfigurationReport(void) {
   if (HeatPump.SVCPopulated || HeatPump.Status.TH32Pipe != 0) {
     doc[F("TH32Pipe")] = HeatPump.Status.TH32Pipe;
   }
-  if (!isCascadeMaster) {
+  if (!Flags::CascadeMaster()) {
     if (HeatPump.SVCPopulated || HeatPump.Status.Fan1RPM != 0) {
       doc[F("Fan1RPM")] = HeatPump.Status.Fan1RPM;
     }
-  }
-  if (!isCascadeMaster) {
     if (HeatPump.SVCPopulated || HeatPump.Status.Fan2RPM != 0) {
       doc[F("Fan2RPM")] = HeatPump.Status.Fan2RPM;
     }
@@ -1927,27 +1929,24 @@ void ConfigurationReport(void) {
 void AdvancedReport(void) {
   JsonDocument doc;
   char Buffer[1024];
-  bool isCascadeSlave = (cascadeMode && mqttSettings.cascadeNodeId != 0);
-  if (!isCascadeSlave) {
+  if (!Flags::CascadeSlave()) {
     doc[F("FlowTMax")] = HeatPump.Status.FlowTempMax;
     doc[F("FlowTMin")] = HeatPump.Status.FlowTempMin;
     doc[F("BoilerFlow")] = HeatPump.Status.ExternalBoilerFlowTemperature;
     doc[F("BoilerReturn")] = HeatPump.Status.ExternalBoilerReturnTemperature;
-  }
-  doc[F("MixingTemp")] = HeatPump.Status.MixingTemperature;
-  doc[F("MixingStep")] = HeatPump.Status.MixingStep;
-  if (!isCascadeSlave) {
     doc[F("Immersion")] = OFF_ON_String[HeatPump.Status.ImmersionActive];
     doc[F("Booster")] = OFF_ON_String[HeatPump.Status.Booster1Active];
     doc[F("Booster2")] = OFF_ON_String[HeatPump.Status.Booster2Active];
   }
+  doc[F("MixingTemp")] = HeatPump.Status.MixingTemperature;
+  doc[F("MixingStep")] = HeatPump.Status.MixingStep;
   doc[F("ThreeWayValve")] = HeatPump.Status.ThreeWayValve;
   doc[F("PrimaryWaterPump")] = OFF_ON_String[HeatPump.Status.PrimaryWaterPump];
   doc[F("RefrigeTemp")] = HeatPump.Status.RefrigeTemp;
   doc[F("CondensingTemp")] = HeatPump.Status.CondensingTemp;
   doc[F("HeatingActive")] =
       HeatingRunningBinary[HeatPump.Status.SystemOperationMode];
-  if (HeatPump.Status.HasCooling) {
+  if (Flags::HasCooling()) {
     doc[F("CoolingActive")] =
         CoolingRunningBinary[HeatPump.Status.SystemOperationMode];
   }
@@ -1989,7 +1988,7 @@ void AdvancedTwoReport(void) {
   }
   doc[F("Z1TstatDemand")] =
       OFF_ON_String[HeatPump.Status.Zone1ThermostatDemand];
-  if (HeatPump.Status.Has2Zone) {
+  if (Flags::Has2Zone()) {
     doc[F("Z2TstatDemand")] =
         OFF_ON_String[HeatPump.Status.Zone2ThermostatDemand];
   }
@@ -2060,30 +2059,30 @@ void EnergyReport(void) {
   }
 
   // Write into the JSON with 2dp rounding (disabled in cascade mode)
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("CHEAT")] = round2(HeatPump.Status.ConsumedHeatingEnergy);
-    if (HeatPump.Status.HasCooling) {
+    if (Flags::HasCooling()) {
       doc[F("CCOOL")] = round2(HeatPump.Status.ConsumedCoolingEnergy);
     }
     doc[F("CDHW")] = round2(HeatPump.Status.ConsumedHotWaterEnergy);
     doc[F("DHEAT")] = round2(HeatPump.Status.DeliveredHeatingEnergy);
-    if (HeatPump.Status.HasCooling) {
+    if (Flags::HasCooling()) {
       doc[F("DCOOL")] = round2(HeatPump.Status.DeliveredCoolingEnergy);
     }
     doc[F("DDHW")] = round2(HeatPump.Status.DeliveredHotWaterEnergy);
     doc[F("CTOTAL")] = round2(ctotal);
     doc[F("DTOTAL")] = round2(dtotal);
   }
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("HEAT_CoP")] = round2(heat_cop);
   }
-  if (!cascadeMode && HeatPump.Status.HasCooling) {
+  if (!Flags::CascadeActive() && Flags::HasCooling()) {
     doc[F("COOL_CoP")] = round2(cool_cop);
   }
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("DHW_CoP")] = round2(dhw_cop);
   }
-  if (!cascadeMode) {
+  if (!Flags::CascadeActive()) {
     doc[F("TOTAL_CoP")] = round2(total_cop);
   }
   doc[F("HB_ID")] = Heart_Value;

@@ -12,6 +12,7 @@
 #endif
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include "Flags.h"
 
 // Forward declarations for types and globals defined in main.cpp
 struct ESPTelnet;
@@ -698,7 +699,7 @@ void readSettingsFromConfig() {
 
     // If cascade master, proactively delete Fan 1/2 Speed discovery
     // by publishing empty retained configs for their topics.
-    if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId == 0) {
+    if (Flags::ConfigCascadeMaster()) {
       String sensorPrefix = String(MQTT_DISCOVERY_TOPICS[0]); // homeassistant/sensor/
       String cfgSuffix = String(MQTT_DISCOVERY_TOPICS[5]);    // /config
       String delFan1 = sensorPrefix + ChipID + "eg" + cfgSuffix; // Fan 1 Speed
@@ -717,12 +718,12 @@ void readSettingsFromConfig() {
 
       // Skip publishing Holiday Mode entity when cascade is enabled
       // Holiday Mode corresponds to discovery index i == 103 (switches group)
-      if (mqttSettings.cascadeEnabled && i == 103) {
+      if (Flags::CascadeEnabled() && i == 103) {
         continue;
       }
 
       // If device is not 2-zone, remove all Zone 2 entities by name
-      if (!HeatPump.Status.Has2Zone) {
+      if (!Flags::Has2Zone()) {
         String sensorName = String(MQTT_SENSOR_NAME[i]);
         if (sensorName.indexOf("Zone 2") >= 0) {
           int topicPrefixIndex = 0; // default to sensor
@@ -742,7 +743,7 @@ void readSettingsFromConfig() {
       }
 
       // If device has no cooling, remove cooling-related sensors/switches
-      if (!HeatPump.Status.HasCooling) {
+      if (!Flags::HasCooling()) {
         String sensorName = String(MQTT_SENSOR_NAME[i]);
         bool coolingName = (sensorName.indexOf("Cooling") >= 0);
         // Only purge non-climate/select entries; climate retains heat/off modes
@@ -763,7 +764,7 @@ void readSettingsFromConfig() {
       }
 
       // If cascade is enabled and this is a slave node, remove selected controls
-      if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0) {
+      if (Flags::ConfigCascadeSlave()) {
         String name = String(MQTT_SENSOR_NAME[i]);
         bool match = false;
         // Thermostats (DHW/Z1/Z2 and flow thermostats)
@@ -818,7 +819,7 @@ void readSettingsFromConfig() {
       //  'Heating CoP Yesterday', 'Cooling CoP Yesterday', 'DHW CoP Yesterday',
       //  'Total CoP Yesterday', as well as 'Heat Pump Input Power' and
       //  'Heat Pump Output Power')
-      if (mqttSettings.cascadeEnabled) {
+      if (Flags::CascadeEnabled()) {
         String sensorName = String(MQTT_SENSOR_NAME[i]);
         bool nameMatch = (sensorName.indexOf("Computed") >= 0 ||
                           sensorName.indexOf("Consumed") >= 0 ||
@@ -846,7 +847,7 @@ void readSettingsFromConfig() {
       // If cascade mode is enabled, remove Heating CoP and DHW CoP discovery
       // entities by publishing empty retained configs. These correspond to
       // indices 47 (Heating CoP Yesterday) and 49 (DHW CoP Yesterday).
-      if (mqttSettings.cascadeEnabled && (i == 47 || i == 49)) {
+      if (Flags::CascadeEnabled() && (i == 47 || i == 49)) {
         String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
                           String(MQTT_DISCOVERY_OBJ_ID[i]) +
                           String(MQTT_DISCOVERY_TOPICS[5]);
@@ -862,7 +863,7 @@ void readSettingsFromConfig() {
       // remove previously discovered Compressor Frequency, Flow Rate, Run Hours
       // (indices 10, 11, 12) and Compressor Start Quantity (by name match)
       // by publishing an empty retained config on their discovery topics.
-      if (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId == 0 &&
+      if (Flags::ConfigCascadeMaster() &&
           (i == 10 || i == 11 || i == 12 || String(MQTT_SENSOR_NAME[i]) == "Compressor Start Quantity")) {
         String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
                           String(MQTT_DISCOVERY_OBJ_ID[i]) +
@@ -958,7 +959,7 @@ void readSettingsFromConfig() {
         } else {
           Config["modes"][0] = "heat";
           int m = 1;
-          if (HeatPump.Status.HasCooling) {
+          if (Flags::HasCooling()) {
             Config["modes"][m++] = "cool";
           }
           Config["modes"][m] = "off";
@@ -1023,7 +1024,7 @@ void readSettingsFromConfig() {
           Config["options"][idx++] = "Heating Temperature";
           Config["options"][idx++] = "Heating Flow";
           Config["options"][idx++] = "Heating Compensation";
-          if (HeatPump.Status.HasCooling) {
+          if (Flags::HasCooling()) {
             Config["options"][idx++] = "Cooling Temperature";
             Config["options"][idx++] = "Cooling Flow";
           }
@@ -1087,7 +1088,7 @@ void readSettingsFromConfig() {
     DEBUG_PRINTLN(F("MQTT ON CONNECT"));
     MQTTClient1.publish(MQTT_LWT.c_str(), "online");
     delay(10);
-    bool isCascadeSlave = (mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0);
+    bool isCascadeSlave = Flags::ConfigCascadeSlave();
 
     if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandZone1FlowSetpoint.c_str());
@@ -1095,21 +1096,21 @@ void readSettingsFromConfig() {
     }
     if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandZone1ProhibitHeating.c_str());
-      if (HeatPump.Status.HasCooling) {
+      if (Flags::HasCooling()) {
         MQTTClient1.subscribe(MQTTCommandZone1ProhibitCooling.c_str());
       }
     }
     if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandZone1HeatingMode.c_str());
     }
-    if (HeatPump.Status.Has2Zone) {
+    if (Flags::Has2Zone()) {
       if (!isCascadeSlave) {
         MQTTClient1.subscribe(MQTTCommandZone2FlowSetpoint.c_str());
         MQTTClient1.subscribe(MQTTCommandZone2NoModeSetpoint.c_str());
       }
       if (!isCascadeSlave) {
         MQTTClient1.subscribe(MQTTCommandZone2ProhibitHeating.c_str());
-        if (HeatPump.Status.HasCooling) {
+        if (Flags::HasCooling()) {
           MQTTClient1.subscribe(MQTTCommandZone2ProhibitCooling.c_str());
         }
       }
@@ -1126,7 +1127,7 @@ void readSettingsFromConfig() {
     if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandHotwaterProhibit.c_str());
     }
-    if (!mqttSettings.cascadeEnabled) {
+    if (!Flags::CascadeEnabled()) {
       MQTTClient1.subscribe(MQTTCommandSystemHolidayMode.c_str());
     }
     if (!isCascadeSlave) {
@@ -1350,7 +1351,7 @@ void readSettingsFromConfig() {
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitHeating.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitCooling.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2HeatingMode.c_str());
-    if (!mqttSettings.cascadeEnabled) {
+    if (!Flags::CascadeEnabled()) {
       MQTTClient2.subscribe(MQTTCommand2SystemHolidayMode.c_str());
     }
     MQTTClient2.subscribe(MQTTCommand2HotwaterMode.c_str());
