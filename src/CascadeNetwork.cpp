@@ -6,6 +6,9 @@
 
 #include "CascadeNetwork.h"
 #include <WiFi.h>
+#include "Flags.h"
+// Access LWT topic without including MQTTConfig.h (avoids pulling heavy globals)
+extern String MQTT_LWT;
 
 // Use Serial for debug output in CascadeNetwork
 #define CASCADE_DEBUG_PRINT(x) Serial.print(x)
@@ -21,6 +24,8 @@ CascadeNetwork::CascadeNetwork() {
   knownNodes = 0;
   lastDiscovery = 0;
   lastHeartbeat = 0;
+  lastStatus = 0;
+  subscriptionsReady = false;
   
   // Initialize node array
   for (uint8_t i = 0; i < MAX_CASCADE_UNITS; i++) {
@@ -58,6 +63,11 @@ void CascadeNetwork::setLocalUnit(ECODAN* unit) {
   CASCADE_DEBUG_PRINTLN("Local unit connection established");
 }
 
+void CascadeNetwork::setLocalUnitCapacity(float capacity) {
+  localUnitCapacity = capacity;
+  upsertLocalNode();
+}
+
 void CascadeNetwork::begin() {
   if (!mqttClient) {
     CASCADE_DEBUG_PRINTLN("ERROR: MQTT client not configured for cascade network");
@@ -65,13 +75,25 @@ void CascadeNetwork::begin() {
   }
   
   subscribeToTopics();
+  // Ensure local node is tracked for aggregation counts
+  upsertLocalNode();
   announcePresence();
   
   CASCADE_DEBUG_PRINTLN("Cascade network started");
 }
 
 void CascadeNetwork::process() {
-  if (!mqttClient || !mqttClient->connected()) return;
+  if (!mqttClient) return;
+  if (!mqttClient->connected()) {
+    // Reset subscription state so we re-subscribe on next connect
+    subscriptionsReady = false;
+    return;
+  }
+  // Subscribe once per connection
+  if (!subscriptionsReady) {
+    subscribeToTopics();
+    subscriptionsReady = true;
+  }
   
   unsigned long currentTime = millis();
   
@@ -90,14 +112,20 @@ void CascadeNetwork::process() {
   // Publish local unit data
   if (localUnit && localUnit->UpdateComplete()) {
     publishLocalData();
+  } else if (Flags::CascadeTestMode()) {
+    // In test mode, publish even without an HP update
+    publishLocalData();
   }
+  // Refresh local node status so it remains online for aggregation
+  upsertLocalNode();
   
   // Clean up offline nodes
   cleanupOfflineNodes();
   
-  // Master-specific processing
-  if (isMasterNode()) {
+  // Leader publishes system status (throttled to heartbeat interval)
+  if (isLeader() && (currentTime - lastStatus >= CASCADE_HEARTBEAT_INTERVAL)) {
     broadcastSystemStatus();
+    lastStatus = currentTime;
   }
 }
 
@@ -110,12 +138,18 @@ void CascadeNetwork::announcePresence() {
   doc["node_name"] = localNodeName;
   doc["ip_address"] = WiFi.localIP().toString();
   doc["mac_address"] = WiFi.macAddress();
-  doc["timestamp"] = millis();
+  // Include an explicit last_seen field for external consumers (no timestamp field)
+  doc["last_seen"] = millis();
   doc["firmware_version"] = FirmwareVersion;
+  // Include LWT topic so peers can subscribe for online/offline
+  doc["lwt_topic"] = MQTT_LWT;
   
-  if (localUnit && localUnit->HeatPumpConnected()) {
+  if (Flags::CascadeTestMode()) {
     doc["unit_connected"] = true;
-    doc["unit_capacity"] = 8.5; // This could be configurable
+    doc["unit_capacity"] = localUnitCapacity;
+  } else if (localUnit && localUnit->HeatPumpConnected()) {
+    doc["unit_connected"] = true;
+    doc["unit_capacity"] = localUnitCapacity;
   } else {
     doc["unit_connected"] = false;
   }
@@ -123,8 +157,9 @@ void CascadeNetwork::announcePresence() {
   String payload;
   serializeJson(doc, payload);
   
-  String topic = getSystemTopic("announce");
-  mqttClient->publish(topic.c_str(), payload.c_str(), false);
+  String topic = getNodeTopic(localNodeId, "announce");
+  // Retain presence so late subscribers can discover nodes immediately
+  mqttClient->publish(topic.c_str(), payload.c_str(), true);
   
   CASCADE_DEBUG_PRINT("Announced presence: ");
   CASCADE_DEBUG_PRINTLN(localNodeName);
@@ -135,11 +170,13 @@ void CascadeNetwork::sendHeartbeat() {
   
   JsonDocument doc;
   doc["node_id"] = localNodeId;
-  doc["timestamp"] = millis();
-  doc["status"] = "online";
   
-  if (localUnit) {
-    doc["unit_connected"] = localUnit->HeatPumpConnected();
+  if (Flags::CascadeTestMode()) {
+    doc["unit_connected"] = true;
+  } else if (localUnit) {
+    doc["unit_connected"] = (bool)localUnit->HeatPumpConnected();
+  } else {
+    doc["unit_connected"] = false;
   }
   
   String payload;
@@ -154,7 +191,6 @@ void CascadeNetwork::publishLocalData() {
   
   JsonDocument doc;
   doc["node_id"] = localNodeId;
-  doc["timestamp"] = millis();
   
   // Standard Ecodan data available from all units
   doc["system_power"] = localUnit->Status.SystemPowerMode;
@@ -217,6 +253,7 @@ void CascadeNetwork::processNodeAnnouncement(const JsonDocument& doc) {
   String nodeName = doc["node_name"];
   String ipAddress = doc["ip_address"];
   String macAddress = doc["mac_address"];
+  String lwtTopic = doc["lwt_topic"].is<const char*>() ? String(doc["lwt_topic"].as<const char*>()) : String("");
   
   // Find or create node entry
   uint8_t nodeIndex = MAX_CASCADE_UNITS;
@@ -239,6 +276,10 @@ void CascadeNetwork::processNodeAnnouncement(const JsonDocument& doc) {
     nodes[nodeIndex].macAddress = macAddress;
     nodes[nodeIndex].status = CASCADE_NODE_ONLINE;
     nodes[nodeIndex].lastSeen = millis();
+    if (lwtTopic.length() > 0) {
+      nodes[nodeIndex].lwtTopic = lwtTopic;
+      if (mqttClient) mqttClient->subscribe(lwtTopic.c_str());
+    }
     
     if (doc["unit_capacity"].is<float>()) {
       nodes[nodeIndex].unitCapacity = doc["unit_capacity"];
@@ -256,12 +297,22 @@ void CascadeNetwork::processNodeHeartbeat(const JsonDocument& doc) {
   uint8_t nodeId = doc["node_id"];
   
   // Update last seen time for known node
-  for (uint8_t i = 0; i < knownNodes; i++) {
+  uint8_t i;
+  for (i = 0; i < knownNodes; i++) {
     if (nodes[i].nodeId == nodeId) {
       nodes[i].lastSeen = millis();
       nodes[i].status = CASCADE_NODE_ONLINE;
-      break;
+      return;
     }
+  }
+  // If we haven't seen an announce yet, create a minimal entry
+  if (knownNodes < MAX_CASCADE_UNITS) {
+    uint8_t idx = knownNodes++;
+    nodes[idx].nodeId = nodeId;
+    nodes[idx].nodeType = (nodeId == 0) ? CASCADE_NODE_MASTER : CASCADE_NODE_SLAVE;
+    nodes[idx].nodeName = String("Node ") + String(nodeId);
+    nodes[idx].status = CASCADE_NODE_ONLINE;
+    nodes[idx].lastSeen = millis();
   }
 }
 
@@ -269,7 +320,8 @@ void CascadeNetwork::processNodeData(const JsonDocument& doc) {
   uint8_t nodeId = doc["node_id"];
   
   // Find node and update data
-  for (uint8_t i = 0; i < knownNodes; i++) {
+  uint8_t i;
+  for (i = 0; i < knownNodes; i++) {
     if (nodes[i].nodeId == nodeId) {
       nodes[i].lastSeen = millis();
       
@@ -289,9 +341,17 @@ void CascadeNetwork::processNodeData(const JsonDocument& doc) {
       if (doc["error_code"].is<int16_t>()) {
         nodes[i].errorCode = doc["error_code"];
       }
-      
-      break;
+      return;
     }
+  }
+  // Create a minimal entry if not known yet
+  if (knownNodes < MAX_CASCADE_UNITS) {
+    uint8_t idx = knownNodes++;
+    nodes[idx].nodeId = nodeId;
+    nodes[idx].nodeType = (nodeId == 0) ? CASCADE_NODE_MASTER : CASCADE_NODE_SLAVE;
+    nodes[idx].nodeName = String("Node ") + String(nodeId);
+    nodes[idx].status = CASCADE_NODE_ONLINE;
+    nodes[idx].lastSeen = millis();
   }
 }
 
@@ -337,11 +397,11 @@ void CascadeNetwork::broadcastSystemStatus() {
   if (!isMasterNode() || !mqttClient || !mqttClient->connected()) return;
   
   JsonDocument doc;
-  doc["master_node"] = localNodeId;
+  // Identify the current leader (the node publishing this status)
+  doc["leader_id"] = localNodeId;
   doc["online_nodes"] = getOnlineNodes();
   doc["total_capacity"] = getTotalSystemCapacity();
   doc["total_power"] = getTotalSystemPower();
-  doc["average_cop"] = getAverageSystemCOP();
   doc["active_units"] = getActiveUnits();
   
   // Add individual node status
@@ -353,8 +413,11 @@ void CascadeNetwork::broadcastSystemStatus() {
       nodeObj["name"] = nodes[i].nodeName;
       nodeObj["type"] = (nodes[i].nodeType == CASCADE_NODE_MASTER) ? "master" : "slave";
       nodeObj["status"] = (nodes[i].status == CASCADE_NODE_ONLINE) ? "online" : "error";
-      nodeObj["capacity"] = nodes[i].unitCapacity;
-      nodeObj["frequency"] = nodes[i].compressorFrequency;
+      // Only include capacity/frequency for slave nodes
+      if (nodes[i].nodeType == CASCADE_NODE_SLAVE) {
+        nodeObj["capacity"] = nodes[i].unitCapacity;
+        nodeObj["frequency"] = nodes[i].compressorFrequency;
+      }
     }
   }
   
@@ -399,13 +462,15 @@ bool CascadeNetwork::isMasterOnline() {
 }
 
 float CascadeNetwork::getTotalSystemCapacity() {
-  float total = 0.0;
+  // Only count online slave units; master-only => 0 capacity
+  uint8_t slavesOnline = 0;
   for (uint8_t i = 0; i < knownNodes; i++) {
-    if (isNodeOnline(nodes[i].nodeId)) {
-      total += nodes[i].unitCapacity;
+    if (isNodeOnline(nodes[i].nodeId) && nodes[i].nodeType == CASCADE_NODE_SLAVE) {
+      slavesOnline++;
     }
   }
-  return total;
+  if (slavesOnline == 0) return 0.0f;
+  return localUnitCapacity * slavesOnline;
 }
 
 float CascadeNetwork::getTotalSystemPower() {
@@ -416,12 +481,6 @@ float CascadeNetwork::getTotalSystemPower() {
     }
   }
   return total;
-}
-
-float CascadeNetwork::getAverageSystemCOP() {
-  float totalPower = getTotalSystemPower();
-  float totalCapacity = getTotalSystemCapacity();
-  return (totalPower > 0) ? (totalCapacity / totalPower) : 0.0;
 }
 
 uint8_t CascadeNetwork::getActiveUnits() {
@@ -438,10 +497,7 @@ void CascadeNetwork::subscribeToTopics() {
   if (!mqttClient || !mqttClient->connected()) return;
   
   // Subscribe to system-wide topics
-  String announceTopic = getSystemTopic("announce");
   String commandTopic = getSystemTopic("command");
-  
-  mqttClient->subscribe(announceTopic.c_str());
   if (!isMasterNode()) {
     mqttClient->subscribe(commandTopic.c_str());
   }
@@ -451,8 +507,10 @@ void CascadeNetwork::subscribeToTopics() {
     if (i != localNodeId) { // Don't subscribe to own topics
       String heartbeatTopic = getNodeTopic(i, "heartbeat");
       String dataTopic = getNodeTopic(i, "data");
+      String announceTopic = getNodeTopic(i, "announce");
       mqttClient->subscribe(heartbeatTopic.c_str());
       mqttClient->subscribe(dataTopic.c_str());
+      mqttClient->subscribe(announceTopic.c_str());
     }
   }
   
@@ -468,6 +526,8 @@ void CascadeNetwork::cleanupOfflineNodes() {
         CASCADE_DEBUG_PRINT("Node went offline: ");
         CASCADE_DEBUG_PRINTLN(nodes[i].nodeName);
         nodes[i].status = CASCADE_NODE_OFFLINE;
+        // Update retained announce to reflect offline state
+        publishNodeOffline(i);
       }
     }
   }
@@ -479,4 +539,90 @@ String CascadeNetwork::getNodeTopic(uint8_t nodeId, const String& suffix) {
 
 String CascadeNetwork::getSystemTopic(const String& suffix) {
   return cascadeTopicPrefix + "/system/" + suffix;
+}
+
+void CascadeNetwork::upsertLocalNode() {
+  // Find existing entry for local node
+  uint8_t idx = MAX_CASCADE_UNITS;
+  for (uint8_t i = 0; i < knownNodes; i++) {
+    if (nodes[i].nodeId == localNodeId) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx == MAX_CASCADE_UNITS && knownNodes < MAX_CASCADE_UNITS) {
+    idx = knownNodes++;
+  }
+  if (idx < MAX_CASCADE_UNITS) {
+    nodes[idx].nodeId = localNodeId;
+    nodes[idx].nodeType = localNodeType;
+    nodes[idx].nodeName = localNodeName;
+    nodes[idx].ipAddress = WiFi.localIP().toString();
+    nodes[idx].macAddress = WiFi.macAddress();
+    nodes[idx].status = CASCADE_NODE_ONLINE;
+    nodes[idx].lastSeen = millis();
+    // Always reflect local configured UnitSize
+    nodes[idx].unitCapacity = localUnitCapacity;
+    if (localUnit) {
+      nodes[idx].compressorFrequency = localUnit->Status.CompressorFrequency;
+    }
+  }
+}
+
+void CascadeNetwork::publishNodeOffline(uint8_t index) {
+  if (!mqttClient || !mqttClient->connected()) return;
+  if (index >= knownNodes) return;
+
+  JsonDocument doc;
+  doc["node_id"] = nodes[index].nodeId;
+  doc["node_type"] = (nodes[index].nodeType == CASCADE_NODE_MASTER) ? "master" : "slave";
+  doc["node_name"] = nodes[index].nodeName;
+  doc["ip_address"] = nodes[index].ipAddress;
+  doc["mac_address"] = nodes[index].macAddress;
+  doc["last_seen"] = nodes[index].lastSeen;
+  doc["firmware_version"] = FirmwareVersion;
+  doc["unit_connected"] = false;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  String topic = getNodeTopic(nodes[index].nodeId, "announce");
+  mqttClient->publish(topic.c_str(), payload.c_str(), true); // Retained offline state
+}
+
+bool CascadeNetwork::handleAuxTopic(const String& topic, const String& payload) {
+  // Handle LWT messages for known nodes
+  for (uint8_t i = 0; i < knownNodes; i++) {
+    if (nodes[i].lwtTopic.length() > 0 && topic == nodes[i].lwtTopic) {
+      String pl = payload;
+      pl.toLowerCase();
+      if (pl == "offline") {
+        nodes[i].status = CASCADE_NODE_OFFLINE;
+      } else if (pl == "online") {
+        nodes[i].status = CASCADE_NODE_ONLINE;
+        nodes[i].lastSeen = millis();
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+bool CascadeNetwork::isLeader() {
+  // If configured as master, act as leader regardless of others
+  if (isMasterNode()) return true;
+  // If master is online, slaves must not lead
+  if (isMasterOnline()) return false;
+  // Among slaves, lowest online node id becomes acting leader
+  return (localNodeType == CASCADE_NODE_SLAVE) && (localNodeId == getLowestOnlineSlaveId());
+}
+
+uint8_t CascadeNetwork::getLowestOnlineSlaveId() {
+  uint8_t lowest = 0xFF;
+  for (uint8_t i = 0; i < knownNodes; i++) {
+    if (nodes[i].nodeType == CASCADE_NODE_SLAVE && isNodeOnline(nodes[i].nodeId)) {
+      if (nodes[i].nodeId < lowest) lowest = nodes[i].nodeId;
+    }
+  }
+  return (lowest == 0xFF) ? 0xFF : lowest;
 }

@@ -52,7 +52,16 @@ public:
 
 extern CascadeCheckboxParameter custom_cascade_enabled;
 extern WiFiManagerParameter custom_cascade_node_id;
+extern WiFiManagerParameter custom_cascade_basetopic;
 extern WiFiManagerParameter custom_device_id;
+// Separate checkbox type for test mode so it reflects its own state
+class CascadeTestCheckboxParameter : public WiFiManagerParameter {
+public:
+  using WiFiManagerParameter::WiFiManagerParameter;
+  virtual const char *getCustomHTML() const override;
+};
+
+extern CascadeTestCheckboxParameter custom_cascade_test_mode;
 
 // Other external variables
 extern WiFiManager wifiManager;
@@ -400,6 +409,19 @@ void readSettingsFromConfig() {
               shouldSaveConfig =
                   true; // Save config after exit to update the file
             }
+            // Cascade base topic (shared across nodes)
+            if (!doc[mqttSettings.cascade_base_topic_identifier].isNull()) {
+              String cascadeBase =
+                  doc[mqttSettings.cascade_base_topic_identifier].as<String>();
+              if ((cascadeBase.length() > 0) &&
+                  ((cascadeBase.length() + 1) <= basetopic_max_length)) {
+                strcpy(mqttSettings.cascadeBaseTopic, cascadeBase.c_str());
+              }
+            } else {
+              // Default to primary base topic to preserve legacy behavior
+              strcpy(mqttSettings.cascadeBaseTopic, mqttSettings.baseTopic);
+              shouldSaveConfig = true;
+            }
             // Cascade settings
             if (!doc[mqttSettings.cascade_enabled_identifier].isNull()) {
               // Accept bool or string; ArduinoJson handles conversion
@@ -418,6 +440,14 @@ void readSettingsFromConfig() {
               mqttSettings.cascadeNodeId = (uint8_t)nodeId;
             } else {
               // Add missing key for upgrade
+              shouldSaveConfig = true;
+            }
+            // Cascade test mode (optional)
+            if (!doc[mqttSettings.cascade_test_mode_identifier].isNull()) {
+              mqttSettings.cascadeTestMode =
+                  doc[mqttSettings.cascade_test_mode_identifier].as<bool>();
+            } else {
+              // Ensure key exists after upgrade
               shouldSaveConfig = true;
             }
             // Unit Size
@@ -563,11 +593,14 @@ void readSettingsFromConfig() {
     strcpy(mqttSettings.user2, custom_mqtt2_user.getValue());
     strcpy(mqttSettings.password2, custom_mqtt2_pass.getValue());
     strcpy(mqttSettings.baseTopic2, custom_mqtt2_basetopic.getValue());
+    strcpy(mqttSettings.cascadeBaseTopic, custom_cascade_basetopic.getValue());
     
     // Handle cascade parameters (only "true" or "false")
     const char *cascadeVal = custom_cascade_enabled.getValue();
     mqttSettings.cascadeEnabled = (cascadeVal != nullptr && strcmp(cascadeVal, "true") == 0);
     mqttSettings.cascadeNodeId = atoi(custom_cascade_node_id.getValue());
+    const char *cascadeTestVal = custom_cascade_test_mode.getValue();
+    mqttSettings.cascadeTestMode = (cascadeTestVal != nullptr && strcmp(cascadeTestVal, "true") == 0);
 
     DEBUG_PRINT(F("Saving config... "));
     File configFile = LittleFS.open("/config.json", "w");
@@ -589,6 +622,8 @@ void readSettingsFromConfig() {
       // Persist cascade settings
       doc[mqttSettings.cascade_enabled_identifier] = mqttSettings.cascadeEnabled;
       doc[mqttSettings.cascade_node_id_identifier] = mqttSettings.cascadeNodeId;
+      doc[mqttSettings.cascade_base_topic_identifier] = mqttSettings.cascadeBaseTopic;
+      doc[mqttSettings.cascade_test_mode_identifier] = mqttSettings.cascadeTestMode;
       doc[unitSettings.unitsize_identifier] = unitSettings.UnitSize;
       doc[unitSettings.glycol_identifier] = unitSettings.GlycolStrength;
       doc[unitSettings.compcurve_identifier] = unitSettings.CompCurve;
@@ -629,12 +664,16 @@ void readSettingsFromConfig() {
     custom_mqtt2_pass.setValue(mqttSettings.password2, password_max_length);
     custom_mqtt2_basetopic.setValue(mqttSettings.baseTopic2,
                                     basetopic_max_length);
+    custom_cascade_basetopic.setValue(mqttSettings.cascadeBaseTopic,
+                                      basetopic_max_length);
     
     // Set cascade parameter value for checkbox submission (always 'true' when checked)
     custom_cascade_enabled.setValue("true", 6);
     char nodeIdStr[5];
     itoa(mqttSettings.cascadeNodeId, nodeIdStr, 10);
     custom_cascade_node_id.setValue(nodeIdStr, 5);
+    // Test mode checkbox value (always 'true' when checked)
+    custom_cascade_test_mode.setValue("true", 6);
 
     // Add the custom MQTT parameters here
     wifiManager.addParameter(&custom_mqtt_server);
@@ -649,6 +688,8 @@ void readSettingsFromConfig() {
     wifiManager.addParameter(&custom_mqtt2_basetopic);
     wifiManager.addParameter(&custom_cascade_enabled);
     wifiManager.addParameter(&custom_cascade_node_id);
+    wifiManager.addParameter(&custom_cascade_basetopic);
+    wifiManager.addParameter(&custom_cascade_test_mode);
     wifiManager.addParameter(&custom_device_id);
 
     // set minimum quality of signal so it ignores AP's under that quality

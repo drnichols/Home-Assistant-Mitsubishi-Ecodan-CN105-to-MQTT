@@ -151,11 +151,18 @@ struct MqttSettings {
   char wm_mqtt2_port_identifier[11] = "mqtt2_port";
   char wm_mqtt2_basetopic_identifier[16] = "mqtt2_basetopic";
 
+  // Cascade dedicated base topic (shared across nodes)
+  char cascadeBaseTopic[30] = "Ecodan/Cascade"; // defaults to baseTopic if not set in config
+  char cascade_base_topic_identifier[20] = "cascade_base_topic";
+
   // Cascade configuration
   bool cascadeEnabled = false;
   uint8_t cascadeNodeId = 0;
   char cascade_enabled_identifier[16] = "cascade_enabled";
   char cascade_node_id_identifier[16] = "cascade_node_id";
+  // Cascade test mode (bypass HP connection requirements)
+  bool cascadeTestMode = false;
+  char cascade_test_mode_identifier[20] = "cascade_test_mode";
 };
 
 struct UnitSettings {
@@ -221,6 +228,7 @@ namespace Flags {
   bool ConfigCascadeSlave() { return mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0; }
   bool HasCooling() { return HeatPump.Status.HasCooling; }
   bool Has2Zone() { return HeatPump.Status.Has2Zone; }
+  bool CascadeTestMode() { return mqttSettings.cascadeTestMode; }
 }
 
 // WiFiManager parameters (including cascade option)
@@ -254,12 +262,25 @@ CascadeCheckboxParameter custom_cascade_enabled(
 WiFiManagerParameter
     custom_cascade_node_id("cascade_node",
                            "<br>Cascade Node ID (0=Master, 1-7=Slave)", "0", 5);
+WiFiManagerParameter custom_cascade_basetopic(
+    "cascade_basetopic", "Cascade Base Topic (shared)", "TEMP", 30);
+// Optional: Test mode that allows cascade functions without HP connection
+CascadeTestCheckboxParameter custom_cascade_test_mode(
+    "cascade_test",
+    "<br><b>Cascade Test Mode</b><br>Publish cascade data without heat pump connection",
+    "", 6);
 WiFiManagerParameter custom_device_id("device_id", "<hr>Device ID", "TEMP", 15);
 
 // Implement dynamic checkbox rendering after MqttSettings is defined
 const char *CascadeCheckboxParameter::getCustomHTML() const {
   return Flags::CascadeEnabled() ? "type='checkbox' checked value='true'"
                                  : "type='checkbox' value='true'";
+}
+
+// Test mode checkbox renderer
+const char *CascadeTestCheckboxParameter::getCustomHTML() const {
+  return Flags::CascadeTestMode() ? "type='checkbox' checked value='true'"
+                                  : "type='checkbox' value='true'";
 }
 
 // Function declarations
@@ -431,7 +452,9 @@ void setup() {
 
   // Initialize cascade MQTT if enabled
   if (Flags::CascadeActive()) {
-    cascadeNetwork.setMQTTClient(&MQTTClient1, String(mqttSettings.baseTopic));
+    cascadeNetwork.setMQTTClient(&MQTTClient1, String(mqttSettings.cascadeBaseTopic));
+    // Reflect current Unit Size into cascade capacity
+    cascadeNetwork.setLocalUnitCapacity(unitSettings.UnitSize);
   }
 
   wifiManager.startWebPortal();
@@ -1038,9 +1061,15 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
   DEBUG_PRINTLN(Payload.c_str());
 
   // Check if this is a cascade network message
-  if (Flags::CascadeActive() && Topic.indexOf("/cascade/") >= 0) {
-    cascadeNetwork.handleRemoteData(Topic, Payload);
-    return;
+  if (Flags::CascadeActive()) {
+    if (Topic.indexOf("/cascade/") >= 0) {
+      cascadeNetwork.handleRemoteData(Topic, Payload);
+      return;
+    }
+    // Allow cascade to consume auxiliary topics (e.g., LWT)
+    if (cascadeNetwork.handleAuxTopic(Topic, Payload)) {
+      return;
+    }
   }
 
   // Original MQTT command handling for single unit or master unit commands
@@ -1232,6 +1261,9 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
     unitSettings.UnitSize = Payload.toFloat();
     shouldSaveConfig =
         true; // Write the data to JSON file so if device reboots it is saved
+    if (Flags::CascadeActive()) {
+      cascadeNetwork.setLocalUnitCapacity(unitSettings.UnitSize);
+    }
   }
 
   if ((Topic == MQTTCommandSystemGlycol) ||

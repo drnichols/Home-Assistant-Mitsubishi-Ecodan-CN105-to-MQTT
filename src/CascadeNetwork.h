@@ -42,6 +42,7 @@ struct CascadeNodeInfo {
   String nodeName;
   String ipAddress;
   String macAddress;
+  String lwtTopic; // MQTT LWT topic for this node
   CascadeNodeStatus status;
   unsigned long lastSeen;
   float unitCapacity;
@@ -64,6 +65,7 @@ public:
   void initialize(CascadeNodeType nodeType, uint8_t nodeId, const String& nodeName);
   void setMQTTClient(PubSubClient* client, const String& baseTopic);
   void setLocalUnit(ECODAN* unit);
+  void setLocalUnitCapacity(float capacity);
   
   // Network management
   void begin();
@@ -74,6 +76,8 @@ public:
   // Data sharing
   void publishLocalData();
   void handleRemoteData(const String& topic, const String& payload);
+  // Handle non-cascade topics that are relevant (e.g., LWT)
+  bool handleAuxTopic(const String& topic, const String& payload);
   
   // Node discovery and management
   bool isNodeOnline(uint8_t nodeId);
@@ -88,8 +92,11 @@ public:
   // Data aggregation (master node only)
   float getTotalSystemCapacity();
   float getTotalSystemPower();
-  float getAverageSystemCOP();
   uint8_t getActiveUnits();
+  
+  // Leadership
+  bool isLeader();
+  uint8_t getLowestOnlineSlaveId();
   
   // Configuration
   bool isMasterNode() { return localNodeType == CASCADE_NODE_MASTER; }
@@ -106,14 +113,18 @@ private:
   PubSubClient* mqttClient;
   String mqttBaseTopic;
   String cascadeTopicPrefix;
+  float localUnitCapacity;
   
   // Node tracking
   CascadeNodeInfo nodes[MAX_CASCADE_UNITS];
   uint8_t knownNodes;
   unsigned long lastDiscovery;
   unsigned long lastHeartbeat;
+  unsigned long lastStatus;
+  bool subscriptionsReady;
   
   // Internal methods
+  void upsertLocalNode();
   void subscribeToTopics();
   void processNodeAnnouncement(const JsonDocument& doc);
   void processNodeHeartbeat(const JsonDocument& doc);
@@ -121,6 +132,7 @@ private:
   void processSystemCommand(const JsonDocument& doc);
   void updateNodeStatus(uint8_t nodeId, CascadeNodeStatus status);
   void cleanupOfflineNodes();
+  void publishNodeOffline(uint8_t index);
   String getNodeTopic(uint8_t nodeId, const String& suffix);
   String getSystemTopic(const String& suffix);
 };
