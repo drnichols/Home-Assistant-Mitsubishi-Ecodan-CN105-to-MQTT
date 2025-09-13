@@ -47,6 +47,8 @@
 // Cascade system includes
 #include "CascadeNetwork.h"
 
+// Project headers below will be included after struct definitions
+
 String FirmwareVersion = "6.4.0-CASCADE";
 
 // Pin definitions (same as original)
@@ -179,6 +181,12 @@ struct UnitSettings {
   bool z2_active = false;
 };
 
+// Project headers that require the struct definitions
+#include "Debug.h"
+#include "MQTTConfig.h"
+#include "MQTTDiscovery.h"
+#include "TimerCallBack.h"
+
 // Global instances
 MqttSettings mqttSettings;
 UnitSettings unitSettings;
@@ -226,18 +234,20 @@ WiFiManagerParameter custom_mqtt2_port("port2", "Secondary MQTT Server Port",
 WiFiManagerParameter custom_mqtt2_basetopic("basetopic2",
                                             "Secondary MQTT Base Topic", "TEMP",
                                             30);
-WiFiManagerParameter custom_cascade_enabled(
-    "cascade", "<hr><b>Cascade Mode</b><br>Enable for multi-unit systems",
-    "false", 10);
+CascadeCheckboxParameter custom_cascade_enabled(
+    "cascade",
+    "<hr><b>Cascade Mode</b><br>Enable for multi-unit systems<br><small><i>Changing this requires a reboot to take effect.</i></small>",
+    "", 6);
 WiFiManagerParameter
     custom_cascade_node_id("cascade_node",
-                           "Cascade Node ID (0=Master, 1-7=Slave)", "0", 5);
+                           "<br>Cascade Node ID (0=Master, 1-7=Slave)", "0", 5);
 WiFiManagerParameter custom_device_id("device_id", "<hr>Device ID", "TEMP", 15);
 
-#include "Debug.h"
-#include "MQTTConfig.h"
-#include "MQTTDiscovery.h"
-#include "TimerCallBack.h"
+// Implement dynamic checkbox rendering after MqttSettings is defined
+const char *CascadeCheckboxParameter::getCustomHTML() const {
+  return mqttSettings.cascadeEnabled ? "type='checkbox' checked value='true'"
+                                     : "type='checkbox' value='true'";
+}
 
 // Function declarations
 void HeatPumpQueryStateEngine(void);

@@ -338,7 +338,6 @@ void CascadeNetwork::broadcastSystemStatus() {
   
   DynamicJsonDocument doc(1024);
   doc["master_node"] = localNodeId;
-  doc["timestamp"] = millis();
   doc["online_nodes"] = getOnlineNodes();
   doc["total_capacity"] = getTotalSystemCapacity();
   doc["total_power"] = getTotalSystemPower();

@@ -13,17 +13,23 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 
-// Forward declarations for configuration structs (defined in main.cpp)
+// Forward declarations for types and globals defined in main.cpp
 struct ESPTelnet;
 struct MqttSettings;
 struct UnitSettings;
 struct WiFiManagerParameter;
 struct WiFiManager;
+class ECODAN;          // from Ecodan.h
+class PubSubClient;    // from PubSubClient.h
 
 extern ESPTelnet TelnetServer;
 extern MqttSettings mqttSettings;
 extern UnitSettings unitSettings;
 extern bool shouldSaveConfig;
+// Globals used by MQTTConfig helpers
+extern ECODAN HeatPump;
+extern PubSubClient MQTTClient1;
+extern PubSubClient MQTTClient2;
 
 // WiFiManager parameter declarations
 extern WiFiManagerParameter custom_mqtt_server;
@@ -36,7 +42,14 @@ extern WiFiManagerParameter custom_mqtt2_user;
 extern WiFiManagerParameter custom_mqtt2_pass;
 extern WiFiManagerParameter custom_mqtt2_port;
 extern WiFiManagerParameter custom_mqtt2_basetopic;
-extern WiFiManagerParameter custom_cascade_enabled;
+// Dynamic checkbox parameter that reflects current cascadeEnabled state
+class CascadeCheckboxParameter : public WiFiManagerParameter {
+public:
+  using WiFiManagerParameter::WiFiManagerParameter;
+  virtual const char *getCustomHTML() const override;
+};
+
+extern CascadeCheckboxParameter custom_cascade_enabled;
 extern WiFiManagerParameter custom_cascade_node_id;
 extern WiFiManagerParameter custom_device_id;
 
@@ -386,6 +399,26 @@ void readSettingsFromConfig() {
               shouldSaveConfig =
                   true; // Save config after exit to update the file
             }
+            // Cascade settings
+            if (!doc[mqttSettings.cascade_enabled_identifier].isNull()) {
+              // Accept bool or string; ArduinoJson handles conversion
+              mqttSettings.cascadeEnabled =
+                  doc[mqttSettings.cascade_enabled_identifier].as<bool>();
+            } else {
+              // Add missing key for upgrade
+              shouldSaveConfig = true;
+            }
+            if (!doc[mqttSettings.cascade_node_id_identifier].isNull()) {
+              int nodeId = doc[mqttSettings.cascade_node_id_identifier].as<int>();
+              if (nodeId < 0)
+                nodeId = 0;
+              if (nodeId > 7)
+                nodeId = 7;
+              mqttSettings.cascadeNodeId = (uint8_t)nodeId;
+            } else {
+              // Add missing key for upgrade
+              shouldSaveConfig = true;
+            }
             // Unit Size
             if (!doc[unitSettings.unitsize_identifier].isNull()) {
               if (doc[unitSettings.unitsize_identifier].as<float>() > 0) {
@@ -530,8 +563,9 @@ void readSettingsFromConfig() {
     strcpy(mqttSettings.password2, custom_mqtt2_pass.getValue());
     strcpy(mqttSettings.baseTopic2, custom_mqtt2_basetopic.getValue());
     
-    // Handle cascade parameters
-    mqttSettings.cascadeEnabled = (strcmp(custom_cascade_enabled.getValue(), "true") == 0);
+    // Handle cascade parameters (only "true" or "false")
+    const char *cascadeVal = custom_cascade_enabled.getValue();
+    mqttSettings.cascadeEnabled = (cascadeVal != nullptr && strcmp(cascadeVal, "true") == 0);
     mqttSettings.cascadeNodeId = atoi(custom_cascade_node_id.getValue());
 
     DEBUG_PRINT(F("Saving config... "));
@@ -551,6 +585,9 @@ void readSettingsFromConfig() {
       doc[mqttSettings.wm_mqtt2_user_identifier] = mqttSettings.user2;
       doc[mqttSettings.wm_mqtt2_password_identifier] = mqttSettings.password2;
       doc[mqttSettings.wm_mqtt2_basetopic_identifier] = mqttSettings.baseTopic2;
+      // Persist cascade settings
+      doc[mqttSettings.cascade_enabled_identifier] = mqttSettings.cascadeEnabled;
+      doc[mqttSettings.cascade_node_id_identifier] = mqttSettings.cascadeNodeId;
       doc[unitSettings.unitsize_identifier] = unitSettings.UnitSize;
       doc[unitSettings.glycol_identifier] = unitSettings.GlycolStrength;
       doc[unitSettings.compcurve_identifier] = unitSettings.CompCurve;
@@ -592,8 +629,8 @@ void readSettingsFromConfig() {
     custom_mqtt2_basetopic.setValue(mqttSettings.baseTopic2,
                                     basetopic_max_length);
     
-    // Set cascade parameter values
-    custom_cascade_enabled.setValue(mqttSettings.cascadeEnabled ? "true" : "false", 10);
+    // Set cascade parameter value for checkbox submission (always 'true' when checked)
+    custom_cascade_enabled.setValue("true", 6);
     char nodeIdStr[5];
     itoa(mqttSettings.cascadeNodeId, nodeIdStr, 10);
     custom_cascade_node_id.setValue(nodeIdStr, 5);
@@ -661,6 +698,12 @@ void readSettingsFromConfig() {
 
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
+
+      // Skip publishing Holiday Mode entity when cascade is enabled
+      // Holiday Mode corresponds to discovery index i == 103 (switches group)
+      if (mqttSettings.cascadeEnabled && i == 103) {
+        continue;
+      }
 
       if (i == 0) { // If the first topic
         Config["device"]["identifiers"] = WiFiHostname;
@@ -884,7 +927,9 @@ void readSettingsFromConfig() {
     MQTTClient1.subscribe(MQTTCommandHotwaterBoost.c_str());
     MQTTClient1.subscribe(MQTTCommandHotwaterNormalBoost.c_str());
     MQTTClient1.subscribe(MQTTCommandHotwaterProhibit.c_str());
-    MQTTClient1.subscribe(MQTTCommandSystemHolidayMode.c_str());
+    if (!mqttSettings.cascadeEnabled) {
+      MQTTClient1.subscribe(MQTTCommandSystemHolidayMode.c_str());
+    }
     MQTTClient1.subscribe(MQTTCommandSystemPower.c_str());
     MQTTClient1.subscribe(MQTTCommandSystemSvrMode.c_str());
     MQTTClient1.subscribe(MQTTCommandSystemUnitSize.c_str());
@@ -1100,7 +1145,9 @@ void readSettingsFromConfig() {
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitHeating.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitCooling.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2HeatingMode.c_str());
-    MQTTClient2.subscribe(MQTTCommand2SystemHolidayMode.c_str());
+    if (!mqttSettings.cascadeEnabled) {
+      MQTTClient2.subscribe(MQTTCommand2SystemHolidayMode.c_str());
+    }
     MQTTClient2.subscribe(MQTTCommand2HotwaterMode.c_str());
     MQTTClient2.subscribe(MQTTCommand2HotwaterSetpoint.c_str());
     MQTTClient2.subscribe(MQTTCommand2HotwaterBoost.c_str());
