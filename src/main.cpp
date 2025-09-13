@@ -626,6 +626,11 @@ void PublishAllReports(void) {
 }
 
 void FastPublish(void) {
+  // In cascade mode, ensure SystemReport is published so HA text sensors
+  // like Cascade Mode have data even if FTCVersion isn't populated yet.
+  if (Flags::CascadeActive()) {
+    SystemReport();
+  }
   if (HeatPump.Status.FTCVersion != 0) {
     SystemReport();
     HotWaterReport();
@@ -1765,6 +1770,16 @@ void SystemReport(void) {
     doc[F("Compressor")] = HeatPump.Status.CompressorFrequency;
     doc[F("FlowRate")] = HeatPump.Status.PrimaryFlowRate;
     doc[F("RunHours")] = HeatPump.Status.RunHours;
+  }
+  // Cascade configuration flags for HA sensors
+  doc[F("CascadeNodeId")] = mqttSettings.cascadeNodeId;
+  // Cascade mode status for HA sensor
+  if (!Flags::CascadeEnabled()) {
+    doc[F("CascadeMode")] = "Disabled";
+  } else if (Flags::CascadeMaster()) {
+    doc[F("CascadeMode")] = "Master";
+  } else if (Flags::CascadeSlave()) {
+    doc[F("CascadeMode")] = "Slave";
   }
   doc[F("SystemPower")] =
       SystemPowerModeString[HeatPump.Status.SystemPowerMode];

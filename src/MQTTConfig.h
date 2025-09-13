@@ -1072,6 +1072,53 @@ void readSettingsFromConfig() {
       Config.clear();
     }
 
+    // Additional discovery: Cascade Mode status (text sensor)
+    // Publishes the cascade role as Disabled/Master/Slave using System status JSON
+    {
+      JsonDocument cfg;
+      // Minimal device info for correct grouping in HA
+      cfg["device"]["identifiers"] = WiFiHostname;
+      cfg["unique_id"] = String("ashp_cascade_mode_") + ChipID;
+      cfg["name"] = "Cascade Mode";
+      cfg["stat_t"] = BASETOPIC + String(MQTT_TOPIC[2]); // /Status/System
+      cfg["val_tpl"] = "{{ value_json.CascadeMode }}";
+      cfg["icon"] = "mdi:source-branch";
+      // LWT availability
+      cfg["availability"]["topic"] = BASETOPIC + String(MQTT_TOPIC[0]);
+
+      char payload[512];
+      size_t sz = serializeJson(cfg, payload);
+      String discTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                         "cascade_mode" + String(MQTT_DISCOVERY_TOPICS[5]);
+      if (MQTTStream == 1) {
+        MQTTClient1.publish(discTopic.c_str(), (uint8_t *)payload, sz, true);
+      } else if (MQTTStream == 2) {
+        MQTTClient2.publish(discTopic.c_str(), (uint8_t *)payload, sz, true);
+      }
+    }
+
+    // Additional discovery: Cascade Node ID (sensor)
+    {
+      JsonDocument cfg;
+      cfg["device"]["identifiers"] = WiFiHostname;
+      cfg["unique_id"] = String("ashp_cascade_node_id_") + ChipID;
+      cfg["name"] = "Cascade Node ID";
+      cfg["stat_t"] = BASETOPIC + String(MQTT_TOPIC[2]); // /Status/System
+      cfg["val_tpl"] = "{{ value_json.CascadeNodeId }}";
+      cfg["icon"] = "mdi:numeric";
+      cfg["availability"]["topic"] = BASETOPIC + String(MQTT_TOPIC[0]);
+
+      char payload[512];
+      size_t sz = serializeJson(cfg, payload);
+      String discTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                         "cascade_node_id" + String(MQTT_DISCOVERY_TOPICS[5]);
+      if (MQTTStream == 1) {
+        MQTTClient1.publish(discTopic.c_str(), (uint8_t *)payload, sz, true);
+      } else if (MQTTStream == 2) {
+        MQTTClient2.publish(discTopic.c_str(), (uint8_t *)payload, sz, true);
+      }
+    }
+
     // Generate Publish Message
     DEBUG_PRINTLN(F("Published Discovery Topics!"));
   }
