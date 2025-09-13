@@ -462,15 +462,15 @@ bool CascadeNetwork::isMasterOnline() {
 }
 
 float CascadeNetwork::getTotalSystemCapacity() {
-  // Only count online slave units; master-only => 0 capacity
-  uint8_t slavesOnline = 0;
+  // Sum capacities of all online slave nodes to support mixed unit sizes.
+  // If no slaves are online, capacity is 0 (master-only scenario).
+  float total = 0.0f;
   for (uint8_t i = 0; i < knownNodes; i++) {
-    if (isNodeOnline(nodes[i].nodeId) && nodes[i].nodeType == CASCADE_NODE_SLAVE) {
-      slavesOnline++;
+    if (nodes[i].nodeType == CASCADE_NODE_SLAVE && isNodeOnline(nodes[i].nodeId)) {
+      total += nodes[i].unitCapacity;
     }
   }
-  if (slavesOnline == 0) return 0.0f;
-  return localUnitCapacity * slavesOnline;
+  return total;
 }
 
 float CascadeNetwork::getTotalSystemPower() {

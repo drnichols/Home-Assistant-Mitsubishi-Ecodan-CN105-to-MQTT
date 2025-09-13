@@ -757,9 +757,24 @@ void readSettingsFromConfig() {
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
 
-      // Skip publishing Holiday Mode entity when cascade is enabled
-      // Holiday Mode corresponds to discovery index i == 103 (switches group)
+      // Proactively remove Holiday Mode switch (and any matching sensor) when
+      // cascade mode is enabled. Holiday Mode corresponds to discovery index
+      // i == 103 in the switches group. We publish empty retained configs to
+      // both the switch and sensor discovery topics to ensure HA removes them.
       if (Flags::CascadeEnabled() && i == 103) {
+        String cfgSuffix = String(MQTT_DISCOVERY_TOPICS[5]); // /config
+        String objId = String(MQTT_DISCOVERY_OBJ_ID[i]);
+        // Switch discovery topic
+        String delSwitch = String(MQTT_DISCOVERY_TOPICS[2]) + ChipID + objId + cfgSuffix;
+        // Sensor discovery topic (in case it exists)
+        String delSensor = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID + objId + cfgSuffix;
+        if (MQTTStream == 1) {
+          MQTTClient1.publish(delSwitch.c_str(), "", true);
+          MQTTClient1.publish(delSensor.c_str(), "", true);
+        } else if (MQTTStream == 2) {
+          MQTTClient2.publish(delSwitch.c_str(), "", true);
+          MQTTClient2.publish(delSensor.c_str(), "", true);
+        }
         continue;
       }
 
