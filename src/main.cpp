@@ -122,8 +122,8 @@ const int user_max_length = 30;
 const int password_max_length = 50;
 const int basetopic_max_length = 30;
 bool BlockWriteFromMELCloud = false;
-
-float Z1_CurveFSP, Z2_CurveFSP;
+float Z1_CurveFSP = 30;
+float Z2_CurveFSP = 30;
 
 // Configuration structures (extended for cascade)
 struct MqttSettings {
@@ -338,13 +338,13 @@ void handleDHWBoost(void);
 void handleDefrost(void);
 
 // Timer callbacks (modified for cascade support)
-TimerCallBack HeatPumpQuery1(400, HeatPumpQueryStateEngine);
-TimerCallBack HeatPumpQuery2(30000, HeatPumpKeepAlive);
-TimerCallBack HeatPumpQuery3(30000, handleMQTTState);
-TimerCallBack HeatPumpQuery4(30000, handleMQTT2State);
-TimerCallBack HeatPumpQuery5(1000, HeatPumpWriteStateEngine);
-TimerCallBack HeatPumpQuery6(2000, FastPublish);
-TimerCallBack HeatPumpQuery7(300000, CalculateCompCurve);
+TimerCallBack HeatPumpQuery1(400, HeatPumpQueryStateEngine);   // Set to 400ms (Safe), 320-350ms best time between messages
+TimerCallBack HeatPumpQuery2(30000, HeatPumpKeepAlive);        // Set to 20-30s for heat pump query frequency
+TimerCallBack HeatPumpQuery3(30000, handleMQTTState);          // Re-connect attempt timer if MQTT is not online
+TimerCallBack HeatPumpQuery4(30000, handleMQTT2State);         // Re-connect attempt timer if MQTT Stream 2 is not online
+TimerCallBack HeatPumpQuery5(1000, HeatPumpWriteStateEngine);  // Set to 1000ms (Safe), 320-350ms best time between messages
+TimerCallBack HeatPumpQuery6(2000, FastPublish);               // Publish some reports at a faster rate
+TimerCallBack HeatPumpQuery7(300000, CalculateCompCurve);      // Calculate the Compensation Curve based on latest data   //300000 = 5min
 
 // Global variables (same as original)
 unsigned long looppreviousMicros = 0;
