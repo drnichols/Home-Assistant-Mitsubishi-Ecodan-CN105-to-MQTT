@@ -74,7 +74,7 @@ extern const int password_max_length;
 extern const int port_max_length;
 extern const int basetopic_max_length;
 
-String MQTT_BASETOPIC = "Ecodan/TEST/ASHP";
+String MQTT_BASETOPIC = "Ecodan/ASHP";
 
 String MQTT_LWT = MQTT_BASETOPIC + "/LWT";
 String MQTT_STATUS = MQTT_BASETOPIC + "/Status";
@@ -577,6 +577,7 @@ void readSettingsFromConfig() {
     MQTTCommandSystemUnitSize = MQTT_COMMAND_SYSTEM_UNITSIZE;
     MQTTCommandSystemGlycol = MQTT_COMMAND_SYSTEM_GLYCOL;
     MQTTCommandSystemService = MQTT_COMMAND_SYSTEM_SERVICE;
+    MQTTCommandSystemCompCurve = MQTT_COMMAND_SYSTEM_COMPCURVE;
   }
 
   void saveConfig() {
@@ -1348,11 +1349,13 @@ void readSettingsFromConfig() {
     MQTT_2_STATUS_ADVANCED_TWO = MQTT_2_STATUS + "/AdvancedTwo";
     MQTT_2_STATUS_ENERGY = MQTT_2_STATUS + "/Energy";
     MQTT_2_STATUS_WIFISTATUS = MQTT_2_STATUS + "/WiFiStatus";
+    MQTT_2_STATUS_CURVE = MQTT_2_STATUS + "/CompCurve";
 
     MQTT_2_COMMAND_ZONE1 = MQTT_2_COMMAND + "/Zone1";
     MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
     MQTT_2_COMMAND_HOTWATER = MQTT_2_COMMAND + "/HotWater";
     MQTT_2_COMMAND_SYSTEM = MQTT_2_COMMAND + "/System";
+    MQTT_2_COMMAND_SYSTEM_COMPCURVE = MQTT_2_COMMAND_SYSTEM + "/CompCurve";
 
     MQTT_2_COMMAND_ZONE1_FLOW_SETPOINT = MQTT_2_COMMAND_ZONE1 + "/FlowSetpoint";
     MQTT_2_COMMAND_ZONE1_NOMODE_SETPOINT =
@@ -1410,6 +1413,7 @@ void readSettingsFromConfig() {
     MQTTCommand2SystemUnitSize = MQTT_2_COMMAND_SYSTEM_UNITSIZE;
     MQTTCommand2SystemGlycol = MQTT_2_COMMAND_SYSTEM_GLYCOL;
     MQTTCommand2SystemService = MQTT_2_COMMAND_SYSTEM_SERVICE;
+    MQTTCommand2SystemCompCurve = MQTT_2_COMMAND_SYSTEM_COMPCURVE;
   }
 
   void initializeMQTTClient2() {
