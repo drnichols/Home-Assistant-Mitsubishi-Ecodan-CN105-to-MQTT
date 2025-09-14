@@ -685,44 +685,29 @@ void CalculateCompCurve() {
         }
       }
 
-      int z1_points = doc["base"]["zone1"]["curve"].size() -
-                      1; // How many points are there specified on the curve
+      int z1_points = doc["base"]["zone1"]["curve"].size() - 1; // How many points are there specified on the curve
       for (int i = 0; i <= z1_points; i++) { // Iterate through the points
-        float tmp_o_1 =
-            doc["base"]["zone1"]["curve"][i]["outside"]; // Outside Temperature
-        if ((i == 0) && (OutsideAirTemperature <
-                         tmp_o_1)) { // On the first point, this determines the
-                                     // Maximum Flow Temp
-          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"]; //
-        } else if ((i == z1_points) && (OutsideAirTemperature >
-                                        tmp_o_1)) { // The last point determines
-                                                    // the Minimum Flow Temp
-          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"]; //
-        } else { // Intermediate Flow Points
-          float tmp_o_2 = doc["base"]["zone1"]["curve"][i + 1]
-                             ["outside"]; // Outside Temperature
-          if ((OutsideAirTemperature >= tmp_o_1) &&
-              (OutsideAirTemperature <=
-               tmp_o_2)) { // Validate the outside temp setpoint is in the
-                           // correct range
-            float y2 = doc["base"]["zone1"]["curve"][i + 1]
-                          ["flow"]; // Calculate the slope using the formula: m
-                                    // = (y2 - y1) / (x2 - x1)
-            float y1 = doc["base"]["zone1"]["curve"][i]["flow"]; //
+        float tmp_o_1 = doc["base"]["zone1"]["curve"][i]["outside"]; // Outside Temperature for this point
+        if ((i == 0) && (OutsideAirTemperature <= tmp_o_1)) { // On the first point, this determines the Maximum Flow Temp
+          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"]; // Set to Max Flow Temp
+        } else if ((i == z1_points) && (OutsideAirTemperature >= tmp_o_1)) { // The last point determines the Minimum Flow Temp
+          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"]; // Set to Min Flow Temp
+        } else { // Intermediate Flow Points are calculated
+          float tmp_o_2 = doc["base"]["zone1"]["curve"][i + 1]["outside"]; // Outside Temperature of the next point (warmer)
+          if ((OutsideAirTemperature > tmp_o_1) && (OutsideAirTemperature < tmp_o_2)) { // Validate the current outside temp value is in the correct range between points
+            float y1 = doc["base"]["zone1"]["curve"][i + 1]["flow"]; // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
+            float y2 = doc["base"]["zone1"]["curve"][i]["flow"]; //
             float z1_delta_y = y2 - y1;                          // y2-y1
-            float z1_delta_x = tmp_o_2 - tmp_o_1;                // x2-x1
+            float z1_delta_x = tmp_o_1 - tmp_o_2;                // x2-x1
             float z1_m = 0;                                      //
-            if (z1_delta_x > 0) {
-              z1_m = z1_delta_y / z1_delta_x;
-            } // Prevent Div by 0          m = y2-y1 / x2-x1
-            float z1_c = y1 - (z1_m * tmp_o_1);                // c = y-mx
-            Z1_CurveFSP = z1_m * OutsideAirTemperature + z1_c; // y = mx+c
+            if (z1_delta_x != 0) { z1_m = z1_delta_y / z1_delta_x; }  // Prevent Div by 0          m = y2-y1 / x2-x1
+            float z1_c = y2 - (z1_m * tmp_o_1);                // c = y-mx at point
+            Z1_CurveFSP = (z1_m * OutsideAirTemperature) + z1_c; // y = mx+c
           }
         }
       }
 
-      int z2_points = doc["base"]["zone2"]["curve"].size() -
-                      1; // How many points are there specified on the curve
+      int z2_points = doc["base"]["zone2"]["curve"].size() - 1; // How many points are there specified on the curve
       for (int i = 0; i <= z2_points; i++) {
         float tmp_o_1 = doc["base"]["zone2"]["curve"][i]["outside"];
         if ((i == 0) && (OutsideAirTemperature <= tmp_o_1)) { // Max Flow Temp
@@ -734,18 +719,14 @@ void CalculateCompCurve() {
           float tmp_o_2 = doc["base"]["zone2"]["curve"][i + 1]["outside"];
           if ((OutsideAirTemperature > tmp_o_1) &&
               (OutsideAirTemperature < tmp_o_2)) {
-            float y2 = doc["base"]["zone2"]["curve"][i + 1]
-                          ["flow"]; // Calculate the slope using the formula: m
-                                    // = (y2 - y1) / (x2 - x1)
-            float y1 = doc["base"]["zone2"]["curve"][i]["flow"];
+            float y1 = doc["base"]["zone2"]["curve"][i + 1]["flow"]; // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
+            float y2 = doc["base"]["zone2"]["curve"][i]["flow"];
             float z2_delta_y = y2 - y1;
-            float z2_delta_x = tmp_o_2 - tmp_o_1;
+            float z2_delta_x = tmp_o_1 - tmp_o_2;
             float z2_m = 0; //
-            if (z2_delta_x > 0) {
-              float z2_m = z2_delta_y / z2_delta_x;
-            } // Prevent Div by 0          m = y2-y1 / x2-x1
+            if (z2_delta_x != 0) { z2_m = z2_delta_y / z2_delta_x;} // Prevent Div by 0          m = y2-y1 / x2-x1
             float z2_c = y2 - (z2_m * tmp_o_1);                // c = y-mx
-            Z2_CurveFSP = z2_m * OutsideAirTemperature + z2_c; // y = mx+c
+            Z2_CurveFSP = (z2_m * OutsideAirTemperature) + z2_c; // y = mx+c
           }
         }
       }
@@ -761,13 +742,11 @@ void CalculateCompCurve() {
 
     // Write the Flow Setpoints to Heat Pump
     if (unitSettings.z1_active) {
-      HeatPump.SetFlowSetpoint(Z1_CurveFSP,
-                               HeatPump.Status.HeatingControlModeZ1, ZONE1);
+      HeatPump.SetFlowSetpoint(Z1_CurveFSP, HEATING_CONTROL_MODE_FLOW_TEMP, ZONE1);
       HeatPump.Status.Zone1FlowTemperatureSetpoint = Z1_CurveFSP;
     }
-    if (unitSettings.z2_active) {
-      HeatPump.SetFlowSetpoint(Z2_CurveFSP,
-                               HeatPump.Status.HeatingControlModeZ2, ZONE2);
+    if (unitSettings.z2_active && Flags::Has2Zone() && !HeatPump.Status.Simple2Zone) {  // User must have Complex 2 zone to set different flow temp in different zones
+      HeatPump.SetFlowSetpoint(Z2_CurveFSP, HEATING_CONTROL_MODE_FLOW_TEMP, ZONE2);
       HeatPump.Status.Zone2FlowTemperatureSetpoint = Z2_CurveFSP;
     }
     CompCurveReport();
@@ -1461,7 +1440,7 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
 }
 
 // Utility functions
-float roundToHalfDecimal(float value) { return round(value * 2.0) / 2.0; }
+float roundToHalfDecimal(float value) { return ((round(value * 2.0)) / 2.0); }
 
 double round2(double value) { return (int)(value * 100 + 0.5) / 100.0; }
 
@@ -1916,7 +1895,7 @@ void ConfigurationReport(void) {
   doc[F("DipSw5")] = decimalToBinary(HeatPump.Status.DipSwitch5);
   doc[F("DipSw6")] = decimalToBinary(HeatPump.Status.DipSwitch6);
   doc[F("HasCooling")] = HeatPump.Status.HasCooling;
-  doc[F("Has2Zone")] = HeatPump.Status.Has2Zone;
+  doc[F("Has2Zone")] = Flags::Has2Zone();
   doc[F("HasSimple2Zone")] = HeatPump.Status.Simple2Zone;
   doc[F("RefrigerantType")] = HeatPump.Status.RefrigerantType;
   // Publish only when available
