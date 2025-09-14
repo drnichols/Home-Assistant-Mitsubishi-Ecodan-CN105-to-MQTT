@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.5-CASCADE";
+String FirmwareVersion = "6.4.6-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -1088,6 +1088,13 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
       HeatPump.WriteServiceCodeCMD(Payload.toInt());
       SvcRequested = Payload.toInt();
     }
+  }
+
+  // From here on are direct control/config commands that should not run
+  // on cascade slave units. Allow only on single units or cascade master.
+  if (Flags::CascadeSlave()) {
+    DEBUG_PRINTLN(F("Cascade slave: skipping direct command handling"));
+    return;
   }
 
   // Zone 1 Temperature Setpoint Commands
