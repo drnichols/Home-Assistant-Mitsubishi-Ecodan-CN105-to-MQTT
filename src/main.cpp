@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.0-CASCADE";
+String FirmwareVersion = "6.4.1-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -215,8 +215,6 @@ WiFiManager wifiManager;
 
 // Cascade-specific variables
 bool cascadeMode = false;
-unsigned long lastCascadeUpdate = 0;
-const unsigned long cascadeUpdateInterval = 5000; // 5 seconds
 
 // Flags helper implementations (after globals exist in this TU)
 namespace Flags {
@@ -302,7 +300,6 @@ void CompCurveReport(void);
 void CalculateCompCurve(void);
 void FastPublish(void);
 
-void CascadeUpdateEngine(void);
 void initializeCascadeSystem(void);
 void processCascadeSystem(void);
 void publishCascadeReports(void);
@@ -347,7 +344,6 @@ TimerCallBack HeatPumpQuery4(30000, handleMQTT2State);
 TimerCallBack HeatPumpQuery5(1000, HeatPumpWriteStateEngine);
 TimerCallBack HeatPumpQuery6(2000, FastPublish);
 TimerCallBack HeatPumpQuery7(300000, CalculateCompCurve);
-TimerCallBack CascadeQuery1(5000, CascadeUpdateEngine); // New cascade timer
 
 // Global variables (same as original)
 unsigned long looppreviousMicros = 0;
@@ -483,7 +479,6 @@ void loop() {
 
   // Process cascade system if enabled
   if (Flags::CascadeActive()) {
-    CascadeQuery1.Process();
     processCascadeSystem();
   }
 
@@ -496,8 +491,9 @@ void loop() {
   if (Flags::CascadeActive()) {
     // In cascade mode, process network
     cascadeNetwork.process();
+    HeatPump.Process();
   } else {
-    // Legacy single unit processing
+    // Single unit processing
     HeatPump.Process();
   }
 
@@ -608,14 +604,6 @@ void initializeCascadeSystem() {
 }
 
 void processCascadeSystem() { cascadeNetwork.process(); }
-
-void CascadeUpdateEngine() {
-  if (!Flags::CascadeActive())
-    return;
-
-  // Network processing is handled in processCascadeSystem()
-  // This timer can be used for additional periodic tasks
-}
 
 void publishCascadeReports() {
   // Individual node data is published automatically by CascadeNetwork
