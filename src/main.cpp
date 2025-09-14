@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.4-CASCADE";
+String FirmwareVersion = "6.4.5-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -637,16 +637,16 @@ void PublishAllReports(void) {
 }
 
 void FastPublish(void) {
-  // In cascade mode, ensure SystemReport is published so HA text sensors
-  // like Cascade Mode have data even if FTCVersion isn't populated yet.
-  if (Flags::CascadeActive()) {
-    SystemReport();
-  }
+  // When FTCVersion is known, publish the standard fast set once.
   if (HeatPump.Status.FTCVersion != 0) {
     SystemReport();
     HotWaterReport();
     AdvancedReport();
     AdvancedTwoReport();
+  } else if (Flags::CascadeActive()) {
+    // In cascade mode, publish SystemReport early so HA sensors have data
+    // even before FTCVersion is populated.
+    SystemReport();
   } // Don't fast publish until at least whole data set gathering is complete
 }
 
