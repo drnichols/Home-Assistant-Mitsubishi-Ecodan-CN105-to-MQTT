@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.3-CASCADE";
+String FirmwareVersion = "6.4.4-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -975,6 +975,7 @@ void HeatPumpQueryStateEngine(void) {
       if (MQTTReconnect() || MQTT2Reconnect()) {
         if (Flags::CascadeActive()) {
           publishCascadeReports();
+          PublishAllReports();
         } else {
           PublishAllReports();
         }
