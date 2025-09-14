@@ -1367,8 +1367,7 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
         }
       }
       // Activation Of Mode per Zone (Bool)
-      const char *error = doc["zone1"]["active"];
-      if (error) {
+      if (doc["zone1"]["active"].is<bool>()) {
         bool wc_z1_active = doc["zone1"]["active"];
         if (!unitSettings.z1_active &&
             wc_z1_active) { // On transition from Inactive > Active
@@ -1385,8 +1384,7 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
         }
         ModifyCompCurveState(1, wc_z1_active); // State Save
       }
-      error = doc["zone2"]["active"];
-      if (error) {
+      if (doc["zone2"]["active"].is<bool>()) {
         bool wc_z2_active = doc["zone2"]["active"];
         if (!unitSettings.z2_active &&
             wc_z2_active) { // On transition from Inactive > Active
@@ -1404,8 +1402,7 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
         ModifyCompCurveState(2, wc_z2_active); // State Save
       }
       // Local or Remote Outdoor Temperature Measurement (Bool)
-      error = doc["use_local_outdoor"];
-      if (error) {
+      if (doc["use_local_outdoor"].is<bool>()) {
         unitSettings.use_local_outdoor = doc["use_local_outdoor"];
       }
       // Adjustments Pre or Post WC Calculation (Float)
@@ -1481,25 +1478,24 @@ void MQTTWriteReceived(String message, int MsgNumber) {
 
 void ModifyCompCurveState(int Zone, bool Active) {
   // Save the state
-  JsonDocument local_stored_doc;
-  DeserializationError error =
-      deserializeJson(local_stored_doc, unitSettings.CompCurve);
+  JsonDocument local_stored_doc;                                                           // Variable for the locally decoded JSON
+  DeserializationError error = deserializeJson(local_stored_doc, unitSettings.CompCurve);  // Unpack the local stored JSON document
   if (error) {
-    DEBUG_PRINT("Failed to parse CompCurve JSON: ");
+    DEBUG_PRINT("Failed to read: ");
     DEBUG_PRINTLN(error.c_str());
-    return;
+  } else {
+    if (Zone == 1) {
+      local_stored_doc["zone1"]["active"] = Active;
+      DEBUG_PRINTLN("Activated Comp Curve Zone 1");
+    }  // Load the new Base into the correct area of the locally stored file
+    if (Zone == 2) {
+      local_stored_doc["zone2"]["active"] = Active;
+      DEBUG_PRINTLN("Activated Comp Curve Zone 2");
+    }  // Load the new Base into the correct area of the locally stored file
   }
-
-  if (Zone == 1) {
-    local_stored_doc["zone1"]["active"] = Active;
-    unitSettings.z1_active = Active;
-  } else if (Zone == 2) {
-    local_stored_doc["zone2"]["active"] = Active;
-    unitSettings.z2_active = Active;
-  }
-
-  serializeJson(local_stored_doc, unitSettings.CompCurve);
-  shouldSaveConfig = true;
+  local_stored_doc.shrinkToFit();
+  serializeJson(local_stored_doc, unitSettings.CompCurve);  // Repack the JSON
+  shouldSaveConfig = true;                                  // Write the data to onboard JSON file so if device reboots it is saved
 }
 
 void syncCurrentTime() {
