@@ -7,6 +7,10 @@
 #include "CascadeNetwork.h"
 #include <WiFi.h>
 #include "Flags.h"
+#include <ESPTelnet.h>
+#include "Debug.h"
+// Telnet debug server (defined in main.cpp)
+extern ESPTelnet TelnetServer;
 // Access LWT topic without including MQTTConfig.h (avoids pulling heavy globals)
 extern String MQTT_LWT;
 
@@ -112,9 +116,6 @@ void CascadeNetwork::process() {
   // Publish local unit data
   if (localUnit && localUnit->UpdateComplete()) {
     publishLocalData();
-  } else if (Flags::CascadeTestMode()) {
-    // In test mode, publish even without an HP update
-    publishLocalData();
   }
   // Refresh local node status so it remains online for aggregation
   upsertLocalNode();
@@ -144,10 +145,7 @@ void CascadeNetwork::announcePresence() {
   // Include LWT topic so peers can subscribe for online/offline
   doc["lwt_topic"] = MQTT_LWT;
   
-  if (Flags::CascadeTestMode()) {
-    doc["unit_connected"] = true;
-    doc["unit_capacity"] = localUnitCapacity;
-  } else if (localUnit && localUnit->HeatPumpConnected()) {
+  if (localUnit && localUnit->HeatPumpConnected()) {
     doc["unit_connected"] = true;
     doc["unit_capacity"] = localUnitCapacity;
   } else {
@@ -171,9 +169,7 @@ void CascadeNetwork::sendHeartbeat() {
   JsonDocument doc;
   doc["node_id"] = localNodeId;
   
-  if (Flags::CascadeTestMode()) {
-    doc["unit_connected"] = true;
-  } else if (localUnit) {
+  if (localUnit) {
     doc["unit_connected"] = (bool)localUnit->HeatPumpConnected();
   } else {
     doc["unit_connected"] = false;
@@ -400,8 +396,7 @@ void CascadeNetwork::broadcastSystemStatus() {
   // Identify the current leader (the node publishing this status)
   doc["leader_id"] = localNodeId;
   doc["online_nodes"] = getOnlineNodes();
-  doc["total_capacity"] = getTotalSystemCapacity();
-  doc["total_power"] = getTotalSystemPower();
+  doc["total_capacity"] = getCascadeTotalCapacity();
   doc["active_units"] = getActiveUnits();
   
   // Add individual node status
@@ -431,10 +426,53 @@ void CascadeNetwork::broadcastSystemStatus() {
 bool CascadeNetwork::isNodeOnline(uint8_t nodeId) {
   for (uint8_t i = 0; i < knownNodes; i++) {
     if (nodes[i].nodeId == nodeId) {
-      return (nodes[i].status == CASCADE_NODE_ONLINE) && 
-             ((millis() - nodes[i].lastSeen) < CASCADE_DATA_TIMEOUT);
+      bool statusOk = (nodes[i].status == CASCADE_NODE_ONLINE);
+      unsigned long now = millis();
+      bool fresh = ((now - nodes[i].lastSeen) < CASCADE_DATA_TIMEOUT);
+      if (statusOk && fresh) {
+        return true;
+      }
+      // Debug reasons for offline state
+      if (!statusOk) {
+        CASCADE_DEBUG_PRINT("Cascade: node ");
+        CASCADE_DEBUG_PRINT(nodes[i].nodeId);
+        CASCADE_DEBUG_PRINTLN(" offline: status not ONLINE");
+        DEBUG_PRINT("Cascade: node ");
+        DEBUG_PRINT(nodes[i].nodeId);
+        DEBUG_PRINTLN(" offline: status not ONLINE");
+      } else if (!fresh) {
+        unsigned long delta = now - nodes[i].lastSeen;
+        CASCADE_DEBUG_PRINT("Cascade: node ");
+        CASCADE_DEBUG_PRINT(nodes[i].nodeId);
+        CASCADE_DEBUG_PRINT(" offline: timeout delta=");
+        CASCADE_DEBUG_PRINT(delta);
+        CASCADE_DEBUG_PRINT("ms >= ");
+        CASCADE_DEBUG_PRINT(CASCADE_DATA_TIMEOUT);
+        CASCADE_DEBUG_PRINT("ms lastSeen=");
+        CASCADE_DEBUG_PRINT(nodes[i].lastSeen);
+        CASCADE_DEBUG_PRINT(" now=");
+        CASCADE_DEBUG_PRINTLN(now);
+        DEBUG_PRINT("Cascade: node ");
+        DEBUG_PRINT(nodes[i].nodeId);
+        DEBUG_PRINT(" offline: timeout delta=");
+        DEBUG_PRINT(delta);
+        DEBUG_PRINT("ms >= ");
+        DEBUG_PRINT(CASCADE_DATA_TIMEOUT);
+        DEBUG_PRINT("ms lastSeen=");
+        DEBUG_PRINT(nodes[i].lastSeen);
+        DEBUG_PRINT(" now=");
+        DEBUG_PRINTLN(now);
+      }
+      return false;
     }
   }
+  // Unknown node id
+  CASCADE_DEBUG_PRINT("Cascade: node ");
+  CASCADE_DEBUG_PRINT(nodeId);
+  CASCADE_DEBUG_PRINTLN(" offline: unknown node");
+  DEBUG_PRINT("Cascade: node ");
+  DEBUG_PRINT(nodeId);
+  DEBUG_PRINTLN(" offline: unknown node");
   return false;
 }
 
@@ -461,27 +499,14 @@ bool CascadeNetwork::isMasterOnline() {
   return isNodeOnline(0); // Master is always node 0
 }
 
-float CascadeNetwork::getTotalSystemCapacity() {
-  // Sum capacities of all online slave nodes to support mixed unit sizes.
-  // If no slaves are online, capacity is 0 (master-only scenario).
-  float total = 0.0f;
-  for (uint8_t i = 0; i < knownNodes; i++) {
-    if (nodes[i].nodeType == CASCADE_NODE_SLAVE && isNodeOnline(nodes[i].nodeId)) {
-      total += nodes[i].unitCapacity;
-    }
-  }
-  return total;
+float CascadeNetwork::getCascadeTotalCapacity() {
+  // Use the local (master) node's configured UnitSize multiplied by the
+  // number of online nodes (excluding master).
+  // Assumes homogeneous unit sizing across the cascade.
+  return localUnitCapacity * (getOnlineNodes() - 1);
 }
 
-float CascadeNetwork::getTotalSystemPower() {
-  float total = 0.0;
-  for (uint8_t i = 0; i < knownNodes; i++) {
-    if (isNodeOnline(nodes[i].nodeId)) {
-      total += nodes[i].unitPower;
-    }
-  }
-  return total;
-}
+// getCascadeTotalCapacity() sums unit_capacity from node announcements
 
 uint8_t CascadeNetwork::getActiveUnits() {
   uint8_t active = 0;

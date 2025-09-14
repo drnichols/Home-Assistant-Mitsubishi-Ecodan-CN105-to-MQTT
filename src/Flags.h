@@ -19,6 +19,6 @@ bool HasCooling();
 bool Has2Zone();
 
 // Testing helpers
-bool CascadeTestMode();
+// bool CascadeTestMode(); // removed
 
 } // namespace Flags

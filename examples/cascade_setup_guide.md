@@ -85,7 +85,7 @@ Ecodan/ASHP/cascade/node_2/heartbeat # Slave 2 heartbeat
 ```
 
 ### Home Assistant Entities
-The system will auto-create entities like:
+The system will expose data to build entities like:
 ```
 sensor.ecodan_cascade_total_capacity
 sensor.ecodan_cascade_online_nodes

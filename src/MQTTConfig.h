@@ -43,6 +43,10 @@ extern WiFiManagerParameter custom_mqtt2_user;
 extern WiFiManagerParameter custom_mqtt2_pass;
 extern WiFiManagerParameter custom_mqtt2_port;
 extern WiFiManagerParameter custom_mqtt2_basetopic;
+// New configuration parameters
+extern WiFiManagerParameter custom_boiler_installed;
+extern WiFiManagerParameter custom_booster1_installed;
+extern WiFiManagerParameter custom_booster2_installed;
 // Dynamic checkbox parameter that reflects current cascadeEnabled state
 class CascadeCheckboxParameter : public WiFiManagerParameter {
 public:
@@ -54,14 +58,6 @@ extern CascadeCheckboxParameter custom_cascade_enabled;
 extern WiFiManagerParameter custom_cascade_node_id;
 extern WiFiManagerParameter custom_cascade_basetopic;
 extern WiFiManagerParameter custom_device_id;
-// Separate checkbox type for test mode so it reflects its own state
-class CascadeTestCheckboxParameter : public WiFiManagerParameter {
-public:
-  using WiFiManagerParameter::WiFiManagerParameter;
-  virtual const char *getCustomHTML() const override;
-};
-
-extern CascadeTestCheckboxParameter custom_cascade_test_mode;
 
 // Other external variables
 extern WiFiManager wifiManager;
@@ -442,12 +438,35 @@ void readSettingsFromConfig() {
               // Add missing key for upgrade
               shouldSaveConfig = true;
             }
-            // Cascade test mode (optional)
-            if (!doc[mqttSettings.cascade_test_mode_identifier].isNull()) {
-              mqttSettings.cascadeTestMode =
-                  doc[mqttSettings.cascade_test_mode_identifier].as<bool>();
+            // Cascade test mode removed
+
+            // Installation flags (string values: 'true' or 'false')
+            if (!doc[mqttSettings.wm_boiler_installed_identifier].isNull()) {
+              String v = doc[mqttSettings.wm_boiler_installed_identifier].as<String>();
+              if (v.length() > 0 && v.length() < sizeof(mqttSettings.boiler_installed)) {
+                strcpy(mqttSettings.boiler_installed, v.c_str());
+              }
             } else {
-              // Ensure key exists after upgrade
+              // default to true; add to config on next save
+              strcpy(mqttSettings.boiler_installed, "true");
+              shouldSaveConfig = true;
+            }
+            if (!doc[mqttSettings.wm_booster1_installed_identifier].isNull()) {
+              String v = doc[mqttSettings.wm_booster1_installed_identifier].as<String>();
+              if (v.length() > 0 && v.length() < sizeof(mqttSettings.booster1_installed)) {
+                strcpy(mqttSettings.booster1_installed, v.c_str());
+              }
+            } else {
+              strcpy(mqttSettings.booster1_installed, "true");
+              shouldSaveConfig = true;
+            }
+            if (!doc[mqttSettings.wm_booster2_installed_identifier].isNull()) {
+              String v = doc[mqttSettings.wm_booster2_installed_identifier].as<String>();
+              if (v.length() > 0 && v.length() < sizeof(mqttSettings.booster2_installed)) {
+                strcpy(mqttSettings.booster2_installed, v.c_str());
+              }
+            } else {
+              strcpy(mqttSettings.booster2_installed, "true");
               shouldSaveConfig = true;
             }
             // Unit Size
@@ -595,13 +614,16 @@ void readSettingsFromConfig() {
     strcpy(mqttSettings.password2, custom_mqtt2_pass.getValue());
     strcpy(mqttSettings.baseTopic2, custom_mqtt2_basetopic.getValue());
     strcpy(mqttSettings.cascadeBaseTopic, custom_cascade_basetopic.getValue());
+    // Installation flags from portal
+    strcpy(mqttSettings.boiler_installed, custom_boiler_installed.getValue());
+    strcpy(mqttSettings.booster1_installed, custom_booster1_installed.getValue());
+    strcpy(mqttSettings.booster2_installed, custom_booster2_installed.getValue());
     
     // Handle cascade parameters (only "true" or "false")
     const char *cascadeVal = custom_cascade_enabled.getValue();
     mqttSettings.cascadeEnabled = (cascadeVal != nullptr && strcmp(cascadeVal, "true") == 0);
     mqttSettings.cascadeNodeId = atoi(custom_cascade_node_id.getValue());
-    const char *cascadeTestVal = custom_cascade_test_mode.getValue();
-    mqttSettings.cascadeTestMode = (cascadeTestVal != nullptr && strcmp(cascadeTestVal, "true") == 0);
+    // cascade test mode removed
 
     DEBUG_PRINT(F("Saving config... "));
     File configFile = LittleFS.open("/config.json", "w");
@@ -624,7 +646,11 @@ void readSettingsFromConfig() {
       doc[mqttSettings.cascade_enabled_identifier] = mqttSettings.cascadeEnabled;
       doc[mqttSettings.cascade_node_id_identifier] = mqttSettings.cascadeNodeId;
       doc[mqttSettings.cascade_base_topic_identifier] = mqttSettings.cascadeBaseTopic;
-      doc[mqttSettings.cascade_test_mode_identifier] = mqttSettings.cascadeTestMode;
+      // cascade test mode removed
+      // Persist installation flags (string values)
+      doc[mqttSettings.wm_boiler_installed_identifier] = mqttSettings.boiler_installed;
+      doc[mqttSettings.wm_booster1_installed_identifier] = mqttSettings.booster1_installed;
+      doc[mqttSettings.wm_booster2_installed_identifier] = mqttSettings.booster2_installed;
       doc[unitSettings.unitsize_identifier] = unitSettings.UnitSize;
       doc[unitSettings.glycol_identifier] = unitSettings.GlycolStrength;
       doc[unitSettings.compcurve_identifier] = unitSettings.CompCurve;
@@ -667,14 +693,17 @@ void readSettingsFromConfig() {
                                     basetopic_max_length);
     custom_cascade_basetopic.setValue(mqttSettings.cascadeBaseTopic,
                                       basetopic_max_length);
+    // Install flags
+    custom_boiler_installed.setValue(mqttSettings.boiler_installed, 6);
+    custom_booster1_installed.setValue(mqttSettings.booster1_installed, 6);
+    custom_booster2_installed.setValue(mqttSettings.booster2_installed, 6);
     
     // Set cascade parameter value for checkbox submission (always 'true' when checked)
     custom_cascade_enabled.setValue("true", 6);
     char nodeIdStr[5];
     itoa(mqttSettings.cascadeNodeId, nodeIdStr, 10);
     custom_cascade_node_id.setValue(nodeIdStr, 5);
-    // Test mode checkbox value (always 'true' when checked)
-    custom_cascade_test_mode.setValue("true", 6);
+    // cascade test mode removed
 
     // Add the custom MQTT parameters here
     wifiManager.addParameter(&custom_mqtt_server);
@@ -687,10 +716,14 @@ void readSettingsFromConfig() {
     wifiManager.addParameter(&custom_mqtt2_pass);
     wifiManager.addParameter(&custom_mqtt2_port);
     wifiManager.addParameter(&custom_mqtt2_basetopic);
+    // Add configuration section fields before cascade section
+    wifiManager.addParameter(&custom_boiler_installed);
+    wifiManager.addParameter(&custom_booster1_installed);
+    wifiManager.addParameter(&custom_booster2_installed);
     wifiManager.addParameter(&custom_cascade_enabled);
     wifiManager.addParameter(&custom_cascade_node_id);
     wifiManager.addParameter(&custom_cascade_basetopic);
-    wifiManager.addParameter(&custom_cascade_test_mode);
+    // cascade test mode removed
     wifiManager.addParameter(&custom_device_id);
 
     // set minimum quality of signal so it ignores AP's under that quality
@@ -739,22 +772,6 @@ void readSettingsFromConfig() {
     // JSON Formation
     JsonDocument Config;
 
-    // If cascade master, proactively delete Fan 1/2 Speed discovery
-    // by publishing empty retained configs for their topics.
-    if (Flags::ConfigCascadeMaster()) {
-      String sensorPrefix = String(MQTT_DISCOVERY_TOPICS[0]); // homeassistant/sensor/
-      String cfgSuffix = String(MQTT_DISCOVERY_TOPICS[5]);    // /config
-      String delFan1 = sensorPrefix + ChipID + "eg" + cfgSuffix; // Fan 1 Speed
-      String delFan2 = sensorPrefix + ChipID + "eh" + cfgSuffix; // Fan 2 Speed
-      if (MQTTStream == 1) {
-        MQTTClient1.publish(delFan1.c_str(), "", true);
-        MQTTClient1.publish(delFan2.c_str(), "", true);
-      } else if (MQTTStream == 2) {
-        MQTTClient2.publish(delFan1.c_str(), "", true);
-        MQTTClient2.publish(delFan2.c_str(), "", true);
-      }
-    }
-
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
 
@@ -800,6 +817,31 @@ void readSettingsFromConfig() {
         }
       }
 
+      // If boiler/boosters are not installed, remove related entities by name
+      {
+        String sensorName = String(MQTT_SENSOR_NAME[i]);
+        // Boiler temperatures
+        bool removeForBoiler = (strcmp(mqttSettings.boiler_installed, "false") == 0) &&
+                               (sensorName == "Boiler Flow Temperature" || sensorName == "Boiler Return Temperature");
+        // Booster heaters
+        bool removeBooster1 = (strcmp(mqttSettings.booster1_installed, "false") == 0) &&
+                              (sensorName == "Booster Heater 1");
+        bool removeBooster2 = (strcmp(mqttSettings.booster2_installed, "false") == 0) &&
+                              (sensorName == "Booster Heater 2");
+        if (removeForBoiler || removeBooster1 || removeBooster2) {
+          // All of these are standard sensors (not climate/select/switch)
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                            String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
+      }
+
       // If cascade is enabled and this is a slave node, remove selected controls
       if (Flags::ConfigCascadeSlave()) {
         String name = String(MQTT_SENSOR_NAME[i]);
@@ -833,6 +875,8 @@ void readSettingsFromConfig() {
         if (name == "Zone 1 Flow Setpoint" || name == "Zone 2 Flow Setpoint") match = true;
         // Unit size and Glycol strength selects
         if (name == "Outdoor Unit Size (kW)" || name == "Glycol Strength") match = true;
+        // Mixing tank/valve are not supported on cascade slaves
+        if (name == "Mixing Tank Temperature" || name == "Mixing Valve Step") match = true;
 
         if (match) {
           int topicPrefixIndex = 0; // sensor by default
@@ -911,6 +955,24 @@ void readSettingsFromConfig() {
           MQTTClient2.publish(delTopic.c_str(), "", true);
         }
         continue;
+      }
+
+      // If cascade is configured as master, do not expose Fan 1/2 Speed sensors.
+      // Publish an empty retained config to remove any previously discovered entity
+      // and skip re-publishing in this loop.
+      if (Flags::ConfigCascadeMaster()) {
+        String sname = String(MQTT_SENSOR_NAME[i]);
+        if (sname == "Fan 1 Speed" || sname == "Fan 2 Speed") {
+          String delTopic = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID +
+                            String(MQTT_DISCOVERY_OBJ_ID[i]) +
+                            String(MQTT_DISCOVERY_TOPICS[5]);
+          if (MQTTStream == 1) {
+            MQTTClient1.publish(delTopic.c_str(), "", true);
+          } else if (MQTTStream == 2) {
+            MQTTClient2.publish(delTopic.c_str(), "", true);
+          }
+          continue;
+        }
       }
 
       if (i == 0) { // If the first topic

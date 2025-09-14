@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.6-CASCADE";
+String FirmwareVersion = "6.4.8-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -161,9 +161,15 @@ struct MqttSettings {
   uint8_t cascadeNodeId = 0;
   char cascade_enabled_identifier[16] = "cascade_enabled";
   char cascade_node_id_identifier[16] = "cascade_node_id";
-  // Cascade test mode (bypass HP connection requirements)
-  bool cascadeTestMode = false;
-  char cascade_test_mode_identifier[20] = "cascade_test_mode";
+  // cascade test mode removed
+
+  // Installation flags (string-based, 'false' disables related HA entities)
+  char boiler_installed[6] = "true";
+  char wm_boiler_installed_identifier[18] = "boiler_installed";
+  char booster1_installed[6] = "true";
+  char wm_booster1_installed_identifier[22] = "booster1_installed";
+  char booster2_installed[6] = "true";
+  char wm_booster2_installed_identifier[22] = "booster2_installed";
 };
 
 struct UnitSettings {
@@ -227,7 +233,7 @@ namespace Flags {
   bool ConfigCascadeSlave() { return mqttSettings.cascadeEnabled && mqttSettings.cascadeNodeId != 0; }
   bool HasCooling() { return HeatPump.Status.HasCooling; }
   bool Has2Zone() { return HeatPump.Status.Has2Zone; }
-  bool CascadeTestMode() { return mqttSettings.cascadeTestMode; }
+  // bool CascadeTestMode() removed
 }
 
 // WiFiManager parameters (including cascade option)
@@ -254,6 +260,14 @@ WiFiManagerParameter custom_mqtt2_port("port2", "Secondary MQTT Server Port",
 WiFiManagerParameter custom_mqtt2_basetopic("basetopic2",
                                             "Secondary MQTT Base Topic", "TEMP",
                                             30);
+// Configuration section and install flags
+// Note: Include the section header in the first field's label to position it
+WiFiManagerParameter custom_boiler_installed(
+    "boiler_installed", "<hr><b>Configuration</b><br>Boiler Installed", "true", 6);
+WiFiManagerParameter custom_booster1_installed(
+    "booster1_installed", "Booster Heater 1 Installed", "true", 6);
+WiFiManagerParameter custom_booster2_installed(
+    "booster2_installed", "Booster Heater 2 Installed", "true", 6);
 CascadeCheckboxParameter custom_cascade_enabled(
     "cascade",
     "<hr><b>Cascade Mode</b><br>Enable for multi-unit systems<br><small><i>Changing this requires a reboot to take effect.</i></small>",
@@ -263,11 +277,6 @@ WiFiManagerParameter
                            "<br>Cascade Node ID (0=Master, 1-7=Slave)", "0", 5);
 WiFiManagerParameter custom_cascade_basetopic(
     "cascade_basetopic", "Cascade Base Topic (shared)", "TEMP", 30);
-// Optional: Test mode that allows cascade functions without HP connection
-CascadeTestCheckboxParameter custom_cascade_test_mode(
-    "cascade_test",
-    "<br><b>Cascade Test Mode</b><br>Publish cascade data without heat pump connection",
-    "", 6);
 WiFiManagerParameter custom_device_id("device_id", "<hr>Device ID", "TEMP", 15);
 
 // Implement dynamic checkbox rendering after MqttSettings is defined
@@ -276,11 +285,7 @@ const char *CascadeCheckboxParameter::getCustomHTML() const {
                                  : "type='checkbox' value='true'";
 }
 
-// Test mode checkbox renderer
-const char *CascadeTestCheckboxParameter::getCustomHTML() const {
-  return Flags::CascadeTestMode() ? "type='checkbox' checked value='true'"
-                                  : "type='checkbox' value='true'";
-}
+// Test mode checkbox renderer removed
 
 // Function declarations
 void HeatPumpQueryStateEngine(void);
@@ -961,6 +966,13 @@ void HeatPumpQueryStateEngine(void) {
         }
       }
     }
+
+    // Ensure cascade node data is published once per update cycle.
+    // HeatPump.UpdateComplete() is a one-shot flag consumed above, which could
+    // otherwise be cleared before CascadeNetwork::process() observes it.
+    if (Flags::CascadeActive()) {
+      cascadeNetwork.publishLocalData();
+    }
   }
 }
 
@@ -1631,8 +1643,8 @@ void StatusReport(void) {
   serializeJson(doc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_WIFISTATUS.c_str(), Buffer, false);
   MQTTClient2.publish(MQTT_2_STATUS_WIFISTATUS.c_str(), Buffer, false);
-  MQTTClient1.publish(MQTT_LWT.c_str(), "online");
-  MQTTClient2.publish(MQTT_2_LWT.c_str(), "online");
+  MQTTClient1.publish(MQTT_LWT.c_str(), "online", true);
+  MQTTClient2.publish(MQTT_2_LWT.c_str(), "online", true);
 }
 
 void SystemReport(void) {
@@ -1900,7 +1912,8 @@ void ConfigurationReport(void) {
   doc[F("HasSimple2Zone")] = HeatPump.Status.Simple2Zone;
   doc[F("RefrigerantType")] = HeatPump.Status.RefrigerantType;
   // Publish only when available
-  if (!Flags::CascadeActive()) {
+  // In cascade mode, expose on slaves (suppress on master only)
+  if (!Flags::CascadeMaster()) {
     if (HeatPump.SVCPopulated || HeatPump.Status.CompOpTimes != 0) {
       doc[F("CompOpTimes")] = HeatPump.Status.CompOpTimes;
     }

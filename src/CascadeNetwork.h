@@ -90,8 +90,7 @@ public:
   void broadcastSystemStatus();
   
   // Data aggregation (master node only)
-  float getTotalSystemCapacity();
-  float getTotalSystemPower();
+  float getCascadeTotalCapacity();
   uint8_t getActiveUnits();
   
   // Leadership
