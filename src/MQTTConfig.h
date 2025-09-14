@@ -757,26 +757,6 @@ void readSettingsFromConfig() {
     // Publish all the discovery topics
     for (int i = 0; i < discovery_topics; i++) {
 
-      // Proactively remove Holiday Mode switch (and any matching sensor) when
-      // cascade mode is enabled. Holiday Mode corresponds to discovery index
-      // i == 103 in the switches group. We publish empty retained configs to
-      // both the switch and sensor discovery topics to ensure HA removes them.
-      if (Flags::CascadeEnabled() && i == 103) {
-        String cfgSuffix = String(MQTT_DISCOVERY_TOPICS[5]); // /config
-        String objId = String(MQTT_DISCOVERY_OBJ_ID[i]);
-        // Switch discovery topic
-        String delSwitch = String(MQTT_DISCOVERY_TOPICS[2]) + ChipID + objId + cfgSuffix;
-        // Sensor discovery topic (in case it exists)
-        String delSensor = String(MQTT_DISCOVERY_TOPICS[0]) + ChipID + objId + cfgSuffix;
-        if (MQTTStream == 1) {
-          MQTTClient1.publish(delSwitch.c_str(), "", true);
-          MQTTClient1.publish(delSensor.c_str(), "", true);
-        } else if (MQTTStream == 2) {
-          MQTTClient2.publish(delSwitch.c_str(), "", true);
-          MQTTClient2.publish(delSensor.c_str(), "", true);
-        }
-        continue;
-      }
 
       // If device is not 2-zone, remove all Zone 2 entities by name
       if (!Flags::Has2Zone()) {
@@ -830,7 +810,7 @@ void readSettingsFromConfig() {
             name == "Heating/Cooling Operation Mode Zone 1" ||
             name == "Heating/Cooling Operation Mode Zone 2") match = true;
         // System/Server controls
-        if (name == "System Power" || name == "Server Control Mode") match = true;
+        if (name == "System Power" || name == "Server Control Mode" || name == "Holiday Mode") match = true;
         // DHW boost controls
         if (name == "DHW Boost" || name == "Fast DHW Boost") match = true;
         // Prohibit controls (DHW, Z1/Z2 Heating/Cooling)
@@ -1230,7 +1210,8 @@ void readSettingsFromConfig() {
     if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandHotwaterProhibit.c_str());
     }
-    if (!Flags::CascadeEnabled()) {
+    // Subscribe to Holiday Mode even in cascade; restrict to master only
+    if (!isCascadeSlave) {
       MQTTClient1.subscribe(MQTTCommandSystemHolidayMode.c_str());
     }
     if (!isCascadeSlave) {
@@ -1454,7 +1435,8 @@ void readSettingsFromConfig() {
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitHeating.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2ProhibitCooling.c_str());
     MQTTClient2.subscribe(MQTTCommand2Zone2HeatingMode.c_str());
-    if (!Flags::CascadeEnabled()) {
+    // Subscribe to Holiday Mode even in cascade; restrict to master only
+    if (!Flags::ConfigCascadeSlave()) {
       MQTTClient2.subscribe(MQTTCommand2SystemHolidayMode.c_str());
     }
     MQTTClient2.subscribe(MQTTCommand2HotwaterMode.c_str());

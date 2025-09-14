@@ -50,7 +50,7 @@
 
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.1-CASCADE";
+String FirmwareVersion = "6.4.3-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
