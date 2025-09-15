@@ -70,24 +70,31 @@ void ECODAN::Process(void) {
 
   while (DeviceStream->available()) {
     if (!ProcessFlag) {
-      printCurrentTime();
-      DEBUG_PRINT(F("[FTC > Bridge] "));
+      // Timestamp + direction header for ECODAN serial I/O (optional)
+      if (gEnableEcodanSerialDebug) {
+        time_t now; struct tm timeinfo; char TimeBuffer[32];
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        strftime(TimeBuffer, sizeof(TimeBuffer), "%F %T -> ", &timeinfo);
+        ECODAN_DEBUG_PRINT(TimeBuffer);
+        ECODAN_DEBUG_PRINT(F("[FTC > Bridge] "));
+      }
       ProcessFlag = true;
     }
     c = DeviceStream->read();
 
     if (c == 0)
-      DEBUG_PRINT(F("__, "));
+      ECODAN_DEBUG_PRINT(F("__, "));
     else {
-      if (c < 0x10) DEBUG_PRINT(F("0"));
-      DEBUG_PRINT(String(c, HEX));
-      DEBUG_PRINT(F(", "));
+      if (c < 0x10) ECODAN_DEBUG_PRINT(F("0"));
+      ECODAN_DEBUG_PRINT(String(c, HEX));
+      ECODAN_DEBUG_PRINT(F(", "));
     }
 
     if (ECODANDECODER::Process(c)) {
       ProcessFlag = false;
       msbetweenmsg = millis() - lastmsgdispatchedMillis;
-      DEBUG_PRINTLN();
+      ECODAN_DEBUG_PRINTLN("");
       Connected = true;
     }
   }
@@ -162,8 +169,15 @@ void ECODAN::StatusStateMachine(void) {
   uint8_t i;
 
   if (CurrentMessage != 0) {
-    printCurrentTime();
-    DEBUG_PRINT(F("[Bridge > FTC] "));
+    // Ecodan serial debug header for status poll
+    if (gEnableEcodanSerialDebug) {
+      time_t now; struct tm timeinfo; char TimeBuffer[32];
+      time(&now);
+      localtime_r(&now, &timeinfo);
+      strftime(TimeBuffer, sizeof(TimeBuffer), "%F %T -> ", &timeinfo);
+      ECODAN_DEBUG_PRINT(TimeBuffer);
+      ECODAN_DEBUG_PRINT(F("[Bridge > FTC] "));
+    }
     ECODANDECODER::CreateBlankTxMessage(GET_REQUEST, 0x10);
 
     if (Status.FTCVersion == 0) {
@@ -178,11 +192,11 @@ void ECODAN::StatusStateMachine(void) {
     DeviceStream->flush();
 
     for (i = 0; i < CommandSize; i++) {
-      if (Buffer[i] < 0x10) DEBUG_PRINT(F("0"));
-      DEBUG_PRINT(String(Buffer[i], HEX));
-      DEBUG_PRINT(F(", "));
+      if (Buffer[i] < 0x10) ECODAN_DEBUG_PRINT(F("0"));
+      ECODAN_DEBUG_PRINT(String(Buffer[i], HEX));
+      ECODAN_DEBUG_PRINT(F(", "));
     }
-    DEBUG_PRINTLN();
+    ECODAN_DEBUG_PRINTLN("");
 
     CurrentMessage++;
 
@@ -216,8 +230,15 @@ void ECODAN::WriteStateMachine(void) {
     DEBUG_PRINT(F(", attempt: "));
     DEBUG_PRINTLN(CurrentWriteAttempt);
 
-    printCurrentTime();
-    DEBUG_PRINT(F("[Bridge > FTC] "));
+    // Timestamp + direction header to ECODAN serial I/O (optional)
+    if (gEnableEcodanSerialDebug) {
+      time_t now; struct tm timeinfo; char TimeBuffer[32];
+      time(&now);
+      localtime_r(&now, &timeinfo);
+      strftime(TimeBuffer, sizeof(TimeBuffer), "%F %T -> ", &timeinfo);
+      ECODAN_DEBUG_PRINT(TimeBuffer);
+      ECODAN_DEBUG_PRINT(F("[Bridge > FTC] "));
+    }
     ECODANDECODER::CreateBlankTxMessage(ECODANDECODER::ReturnNextCommandType(cmd_queue_position), 0x10);
     ECODANDECODER::EncodeNextCommand(cmd_queue_position);
     CommandSize = ECODANDECODER::PrepareTxCommand(Buffer);
@@ -226,11 +247,11 @@ void ECODAN::WriteStateMachine(void) {
     DeviceStream->flush();
 
     for (i = 0; i < CommandSize; i++) {
-      if (Buffer[i] < 0x10) DEBUG_PRINT(F("0"));
-      DEBUG_PRINT(String(Buffer[i], HEX));
-      DEBUG_PRINT(F(", "));
+      if (Buffer[i] < 0x10) ECODAN_DEBUG_PRINT(F("0"));
+      ECODAN_DEBUG_PRINT(String(Buffer[i], HEX));
+      ECODAN_DEBUG_PRINT(F(", "));
     }
-    DEBUG_PRINTLN();
+    ECODAN_DEBUG_PRINTLN("");
 
     WriteInProgress = true;
   }
@@ -390,7 +411,8 @@ void ECODAN::GetFTCVersion() {
   uint8_t CommandSize = 0;
   uint8_t i;
 
-  DEBUG_PRINT(F("[Bridge > FTC] "));
+  // Direction header to ECODAN serial I/O (optional)
+  ECODAN_DEBUG_PRINT(F("[Bridge > FTC] "));
   StopStateMachine();
   ECODANDECODER::CreateBlankTxMessage(0x5B, 0x01);
   ECODANDECODER::EncodeFTCVersion();
@@ -400,11 +422,11 @@ void ECODAN::GetFTCVersion() {
   DeviceStream->flush();
 
   for (i = 0; i < CommandSize; i++) {
-    if (Buffer[i] < 0x10) DEBUG_PRINT(F("0"));
-    DEBUG_PRINT(String(Buffer[i], HEX));
-    DEBUG_PRINT(F(", "));
+    if (Buffer[i] < 0x10) ECODAN_DEBUG_PRINT(F("0"));
+    ECODAN_DEBUG_PRINT(String(Buffer[i], HEX));
+    ECODAN_DEBUG_PRINT(F(", "));
   }
-  DEBUG_PRINTLN();
+  ECODAN_DEBUG_PRINTLN("");
 }
 
 

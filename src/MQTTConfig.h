@@ -87,6 +87,11 @@ String MQTT_STATUS_ENERGY = MQTT_STATUS + "/Energy";
 String MQTT_STATUS_WIFISTATUS = MQTT_STATUS + "/WiFiStatus";
 String MQTT_STATUS_CURVE = MQTT_STATUS + "/CompCurve";
 
+// Debug channel topics (primary)
+String MQTT_DEBUG = MQTT_BASETOPIC + "/Debug";
+String MQTT_DEBUG_CALC = MQTT_DEBUG + "/CalculateCompCurve";
+String MQTT_DEBUG_ENABLE = MQTT_DEBUG + "/Enable"; // payload: true/false (retained)
+
 String MQTT_COMMAND_ZONE1 = MQTT_COMMAND + "/Zone1";
 String MQTT_COMMAND_ZONE2 = MQTT_COMMAND + "/Zone2";
 String MQTT_COMMAND_HOTWATER = MQTT_COMMAND + "/HotWater";
@@ -167,6 +172,11 @@ String MQTT_2_STATUS_ADVANCED_TWO = MQTT_2_STATUS + "/AdvancedTwo";
 String MQTT_2_STATUS_ENERGY = MQTT_2_STATUS + "/Energy";
 String MQTT_2_STATUS_WIFISTATUS = MQTT_2_STATUS + "/WiFiStatus";
 String MQTT_2_STATUS_CURVE = MQTT_2_STATUS + "/CompCurve";
+
+// Debug channel topics (secondary)
+String MQTT_2_DEBUG = MQTT_2_BASETOPIC + "/Debug";
+String MQTT_2_DEBUG_CALC = MQTT_2_DEBUG + "/CalculateCompCurve";
+String MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable";
 
 String MQTT_2_COMMAND_ZONE1 = MQTT_2_COMMAND + "/Zone1";
 String MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
@@ -538,6 +548,10 @@ void readSettingsFromConfig() {
     MQTT_STATUS_ENERGY = MQTT_STATUS + "/Energy";
     MQTT_STATUS_WIFISTATUS = MQTT_STATUS + "/WiFiStatus";
     MQTT_STATUS_CURVE = MQTT_STATUS + "/CompCurve";
+    // Debug topics follow base topic
+    MQTT_DEBUG = MQTT_BASETOPIC + "/Debug";
+    MQTT_DEBUG_CALC = MQTT_DEBUG + "/CalculateCompCurve";
+    MQTT_DEBUG_ENABLE = MQTT_DEBUG + "/Enable";
 
     MQTT_COMMAND_ZONE1 = MQTT_COMMAND + "/Zone1";
     MQTT_COMMAND_ZONE2 = MQTT_COMMAND + "/Zone2";
@@ -1289,6 +1303,8 @@ void readSettingsFromConfig() {
     }
     MQTTClient1.subscribe(MQTTCommandSystemService.c_str());
     MQTTClient1.subscribe(MQTTCommandSystemCompCurve.c_str());
+    // Subscribe to Debug enable toggle on primary broker
+    MQTTClient1.subscribe(MQTT_DEBUG_ENABLE.c_str());
 
     delay(10);
     PublishDiscoveryTopics(1, MQTT_BASETOPIC);
@@ -1412,6 +1428,10 @@ void readSettingsFromConfig() {
     MQTT_2_STATUS_ENERGY = MQTT_2_STATUS + "/Energy";
     MQTT_2_STATUS_WIFISTATUS = MQTT_2_STATUS + "/WiFiStatus";
     MQTT_2_STATUS_CURVE = MQTT_2_STATUS + "/CompCurve";
+    // Debug topics for secondary base
+    MQTT_2_DEBUG = MQTT_2_BASETOPIC + "/Debug";
+    MQTT_2_DEBUG_CALC = MQTT_2_DEBUG + "/CalculateCompCurve";
+    MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable";
 
     MQTT_2_COMMAND_ZONE1 = MQTT_2_COMMAND + "/Zone1";
     MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
@@ -1516,6 +1536,8 @@ void readSettingsFromConfig() {
     MQTTClient2.subscribe(MQTTCommand2SystemGlycol.c_str());
     MQTTClient2.subscribe(MQTTCommand2SystemService.c_str());
     MQTTClient2.subscribe(MQTTCommand2SystemCompCurve.c_str());
+    // Subscribe to Debug enable toggle on secondary broker
+    MQTTClient2.subscribe(MQTT_2_DEBUG_ENABLE.c_str());
     delay(10);
     PublishDiscoveryTopics(2, MQTT_2_BASETOPIC);
   }
