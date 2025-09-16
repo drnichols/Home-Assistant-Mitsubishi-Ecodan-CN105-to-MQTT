@@ -39,3 +39,8 @@ It's possible with appropriate hardware to keep MELCloud running, see [Hardware 
 # Mitsibushi CN105 Protocol
 
 To learn all about the Mitsibushi CN105 Protocol, please read [Protocol.md](https://github.com/F1p/Mitsubishi-CN105-Protocol-Decode/blob/master/documentation/Protocol.md)
+
+# Contributing
+
+For build, testing, and style expectations please review [AGENTS.md](AGENTS.md).
+

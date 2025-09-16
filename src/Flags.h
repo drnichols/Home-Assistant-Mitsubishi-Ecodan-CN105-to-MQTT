@@ -18,7 +18,4 @@ bool ConfigCascadeSlave();
 bool HasCooling();
 bool Has2Zone();
 
-// Testing helpers
-// bool CascadeTestMode(); // removed
-
 } // namespace Flags
