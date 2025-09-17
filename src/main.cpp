@@ -35,7 +35,7 @@
 #endif
 
 #ifndef ARDUINO_WT32_ETH01
-#define WEBSERVER_H "fix conflict"
+// #define WEBSERVER_H "fix conflict"
 #include <ESPAsyncWebServer.h>
 #endif
 #include "Ecodan.h"
@@ -49,7 +49,7 @@
 #include "Flags.h"
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.10-CASCADE";
+String FirmwareVersion = "6.4.11-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -220,7 +220,7 @@ ESPTelnet TelnetServer;
 
 // Ecodan serial I/O debug flag (separate from general DEBUG_* macros)
 // Set true to enable CN105 traffic logs to the USB Serial port.
-bool gEnableEcodanSerialDebug = true;
+bool gEnableEcodanSerialDebug = false;
 
 // MQTT debug channel toggle (publishes under [base]/Debug/* when enabled)
 bool gEnableMQTTDebug = false;

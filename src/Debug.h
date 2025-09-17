@@ -21,5 +21,24 @@ extern bool gEnableEcodanSerialDebug; // defined in main.cpp
 #define ECODAN_SERIAL_DEBUG_PORT Serial
 #endif
 
-#define ECODAN_DEBUG_PRINT(x)  do { if (gEnableEcodanSerialDebug) { ECODAN_SERIAL_DEBUG_PORT.print(x); } } while (0)
-#define ECODAN_DEBUG_PRINTLN(x) do { if (gEnableEcodanSerialDebug) { ECODAN_SERIAL_DEBUG_PORT.println(x); } } while (0)
+#ifndef ECODAN_TELNET_DEBUG_PORT
+#define ECODAN_TELNET_DEBUG_PORT TelnetServer
+#endif
+
+#define ECODAN_DEBUG_PRINT(x)                                                           \
+  do {                                                                                  \
+    if (gEnableEcodanSerialDebug) {                                                     \
+      auto _ecodan_debug_value = (x);                                                   \
+      ECODAN_SERIAL_DEBUG_PORT.print(_ecodan_debug_value);                              \
+      ECODAN_TELNET_DEBUG_PORT.print(_ecodan_debug_value);                              \
+    }                                                                                   \
+  } while (0)
+
+#define ECODAN_DEBUG_PRINTLN(x)                                                         \
+  do {                                                                                  \
+    if (gEnableEcodanSerialDebug) {                                                     \
+      auto _ecodan_debug_value = (x);                                                   \
+      ECODAN_SERIAL_DEBUG_PORT.println(_ecodan_debug_value);                            \
+      ECODAN_TELNET_DEBUG_PORT.println(_ecodan_debug_value);                            \
+    }                                                                                   \
+  } while (0)

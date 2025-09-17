@@ -224,11 +224,12 @@ void ECODAN::WriteStateMachine(void) {
   if (cmd_queue_length > 0 && cmd_queue_length < 10) {
     CurrentWriteAttempt++;
     StopStateMachine();
-    printCurrentTime();
-    DEBUG_PRINT(F("Writing msg at position: "));
-    DEBUG_PRINT(cmd_queue_position);
-    DEBUG_PRINT(F(", attempt: "));
-    DEBUG_PRINTLN(CurrentWriteAttempt);
+    if (gEnableEcodanSerialDebug) {
+      ECODAN_DEBUG_PRINT(F("Writing msg at position: "));
+      ECODAN_DEBUG_PRINT(cmd_queue_position);
+      ECODAN_DEBUG_PRINT(F(", attempt: "));
+      ECODAN_DEBUG_PRINTLN(CurrentWriteAttempt);
+    }
 
     // Timestamp + direction header to ECODAN serial I/O (optional)
     if (gEnableEcodanSerialDebug) {
