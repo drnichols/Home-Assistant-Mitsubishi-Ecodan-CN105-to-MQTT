@@ -34,12 +34,7 @@ void CalculateCompCurve() {
         }
       }
 
-      DEBUG_PRINT("OAT: ");
-      DEBUG_PRINTLN(OutsideAirTemperature);
-
       int z1_points = doc["base"]["zone1"]["curve"].size() - 1; // How many points are there specified on the curve
-      DEBUG_PRINT("Z1 Points: ");
-      DEBUG_PRINTLN(z1_points);
       MQTTDebugPublish("CalculateCompCurve/Z1/Points", String(z1_points + 1));
       for (int i = 0; i <= z1_points; i++) { // Iterate through the points
         float tmp_o_1 = doc["base"]["zone1"]["curve"][i]["outside"]; // Outside Temperature for this point
@@ -60,16 +55,10 @@ void CalculateCompCurve() {
             if (z1_delta_x != 0) { z1_m = z1_delta_y / z1_delta_x; }  // Prevent Div by 0          m = y2-y1 / x2-x1
             float z1_c = y2 - (z1_m * tmp_o_1);                // c = y-mx at point
             Z1_CurveFSP = (z1_m * OutsideAirTemperature) + z1_c; // y = mx+c
-            DEBUG_PRINTLN("Z1_CurveFSP set to Intermediate");
-            DEBUG_PRINT(z1_m);
-            DEBUG_PRINT(" ");
-            DEBUG_PRINTLN(z1_c);
             MQTTDebugPublish("CalculateCompCurve/Z1/Intermediate", String("m=") + String(z1_m) + ", c=" + String(z1_c) + ", fsp=" + String(Z1_CurveFSP));
           }
         }
       }
-      DEBUG_PRINT("Z1_CurveFSP after calculation: ");
-      DEBUG_PRINTLN(Z1_CurveFSP);
       MQTTDebugPublish("CalculateCompCurve/Z1/BeforeOffsets", String(Z1_CurveFSP));
 
       int z2_points = doc["base"]["zone2"]["curve"].size() - 1; // How many points are there specified on the curve

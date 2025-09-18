@@ -27,6 +27,8 @@ extern ESPTelnet TelnetServer;
 extern MqttSettings mqttSettings;
 extern UnitSettings unitSettings;
 extern bool shouldSaveConfig;
+extern bool gRequestedTelnetDebug;
+extern bool gLittleFSMounted;
 // Globals used by MQTTConfig helpers
 extern ECODAN HeatPump;
 extern PubSubClient MQTTClient1;
@@ -90,7 +92,10 @@ String MQTT_STATUS_CURVE = MQTT_STATUS + "/CompCurve";
 // Debug channel topics (primary)
 String MQTT_DEBUG = MQTT_BASETOPIC + "/Debug";
 String MQTT_DEBUG_CALC = MQTT_DEBUG + "/CalculateCompCurve";
-String MQTT_DEBUG_ENABLE = MQTT_DEBUG + "/Enable"; // payload: true/false (retained)
+String MQTT_DEBUG_ENABLE =
+    MQTT_DEBUG + "/Enable/MQTT"; // payload: true/false (retained)
+String MQTT_DEBUG_ENABLE_SERIAL = MQTT_DEBUG + "/Enable/Serial";
+String MQTT_DEBUG_ENABLE_TELNET = MQTT_DEBUG + "/Enable/Telnet";
 
 String MQTT_COMMAND_ZONE1 = MQTT_COMMAND + "/Zone1";
 String MQTT_COMMAND_ZONE2 = MQTT_COMMAND + "/Zone2";
@@ -176,7 +181,9 @@ String MQTT_2_STATUS_CURVE = MQTT_2_STATUS + "/CompCurve";
 // Debug channel topics (secondary)
 String MQTT_2_DEBUG = MQTT_2_BASETOPIC + "/Debug";
 String MQTT_2_DEBUG_CALC = MQTT_2_DEBUG + "/CalculateCompCurve";
-String MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable";
+String MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable/MQTT";
+String MQTT_2_DEBUG_ENABLE_SERIAL = MQTT_2_DEBUG + "/Enable/Serial";
+String MQTT_2_DEBUG_ENABLE_TELNET = MQTT_2_DEBUG + "/Enable/Telnet";
 
 String MQTT_2_COMMAND_ZONE1 = MQTT_2_COMMAND + "/Zone1";
 String MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
@@ -260,12 +267,14 @@ void readSettingsFromConfig() {
 
   // Read configuration from LittleFS JSON
   DEBUG_PRINTLN(F("Mounting File System..."));
+  gLittleFSMounted = false;
 #ifdef ESP8266
   if (LittleFS.begin()) {
 #endif
 #ifdef ESP32
     if (LittleFS.begin("/storage")) {
 #endif
+      gLittleFSMounted = true;
       DEBUG_PRINTLN(F("Mounted File System"));
       if (LittleFS.exists("/config.json")) {
         // file exists, reading and loading
@@ -450,6 +459,12 @@ void readSettingsFromConfig() {
             }
             // Cascade test mode removed
 
+            if (!doc["debug_enable_telnet"].isNull()) {
+              gRequestedTelnetDebug = doc["debug_enable_telnet"].as<bool>();
+            } else {
+              shouldSaveConfig = true;
+            }
+
             // Installation flags (string values: 'true' or 'false')
             if (!doc[mqttSettings.wm_boiler_installed_identifier].isNull()) {
               String v = doc[mqttSettings.wm_boiler_installed_identifier].as<String>();
@@ -528,6 +543,7 @@ void readSettingsFromConfig() {
                DeviceID); // Base topic 2 defaults to deviceID
       }
     } else {
+      gLittleFSMounted = false;
       DEBUG_PRINTLN(F("Failed to mount File System"));
     }
   }
@@ -551,7 +567,9 @@ void readSettingsFromConfig() {
     // Debug topics follow base topic
     MQTT_DEBUG = MQTT_BASETOPIC + "/Debug";
     MQTT_DEBUG_CALC = MQTT_DEBUG + "/CalculateCompCurve";
-    MQTT_DEBUG_ENABLE = MQTT_DEBUG + "/Enable";
+    MQTT_DEBUG_ENABLE = MQTT_DEBUG + "/Enable/MQTT";
+    MQTT_DEBUG_ENABLE_SERIAL = MQTT_DEBUG + "/Enable/Serial";
+    MQTT_DEBUG_ENABLE_TELNET = MQTT_DEBUG + "/Enable/Telnet";
 
     MQTT_COMMAND_ZONE1 = MQTT_COMMAND + "/Zone1";
     MQTT_COMMAND_ZONE2 = MQTT_COMMAND + "/Zone2";
@@ -660,6 +678,7 @@ void readSettingsFromConfig() {
       doc[mqttSettings.cascade_enabled_identifier] = mqttSettings.cascadeEnabled;
       doc[mqttSettings.cascade_node_id_identifier] = mqttSettings.cascadeNodeId;
       doc[mqttSettings.cascade_base_topic_identifier] = mqttSettings.cascadeBaseTopic;
+      doc["debug_enable_telnet"] = gRequestedTelnetDebug;
       // cascade test mode removed
       // Persist installation flags (string values)
       doc[mqttSettings.wm_boiler_installed_identifier] = mqttSettings.boiler_installed;
@@ -1303,11 +1322,14 @@ void readSettingsFromConfig() {
     }
     MQTTClient1.subscribe(MQTTCommandSystemService.c_str());
     MQTTClient1.subscribe(MQTTCommandSystemCompCurve.c_str());
-    // Subscribe to Debug enable toggle on primary broker
+    // Subscribe to Debug enable toggles on primary broker
     MQTTClient1.subscribe(MQTT_DEBUG_ENABLE.c_str());
+    MQTTClient1.subscribe(MQTT_DEBUG_ENABLE_SERIAL.c_str());
+    MQTTClient1.subscribe(MQTT_DEBUG_ENABLE_TELNET.c_str());
 
     delay(10);
     PublishDiscoveryTopics(1, MQTT_BASETOPIC);
+    publishDebugEnableStates();
 
 #ifdef ESP8266                      // Define the Witty ESP8266 Ports
     analogWrite(Green_RGB_LED, 30); // Green LED on, 25% brightness
@@ -1431,7 +1453,9 @@ void readSettingsFromConfig() {
     // Debug topics for secondary base
     MQTT_2_DEBUG = MQTT_2_BASETOPIC + "/Debug";
     MQTT_2_DEBUG_CALC = MQTT_2_DEBUG + "/CalculateCompCurve";
-    MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable";
+    MQTT_2_DEBUG_ENABLE = MQTT_2_DEBUG + "/Enable/MQTT";
+    MQTT_2_DEBUG_ENABLE_SERIAL = MQTT_2_DEBUG + "/Enable/Serial";
+    MQTT_2_DEBUG_ENABLE_TELNET = MQTT_2_DEBUG + "/Enable/Telnet";
 
     MQTT_2_COMMAND_ZONE1 = MQTT_2_COMMAND + "/Zone1";
     MQTT_2_COMMAND_ZONE2 = MQTT_2_COMMAND + "/Zone2";
@@ -1536,10 +1560,13 @@ void readSettingsFromConfig() {
     MQTTClient2.subscribe(MQTTCommand2SystemGlycol.c_str());
     MQTTClient2.subscribe(MQTTCommand2SystemService.c_str());
     MQTTClient2.subscribe(MQTTCommand2SystemCompCurve.c_str());
-    // Subscribe to Debug enable toggle on secondary broker
+    // Subscribe to Debug enable toggles on secondary broker
     MQTTClient2.subscribe(MQTT_2_DEBUG_ENABLE.c_str());
+    MQTTClient2.subscribe(MQTT_2_DEBUG_ENABLE_SERIAL.c_str());
+    MQTTClient2.subscribe(MQTT_2_DEBUG_ENABLE_TELNET.c_str());
     delay(10);
     PublishDiscoveryTopics(2, MQTT_2_BASETOPIC);
+    publishDebugEnableStates();
   }
 
   uint8_t MQTT2Reconnect() {

@@ -195,6 +195,17 @@ struct UnitSettings {
   bool z2_active = false;
 };
 
+// Forward declarations for MQTT debug helpers (needed before including MQTTConfig)
+void loadOutdoorSourceSettingsFromCompCurve();
+bool persistUseLocalOutdoor(bool newValue);
+String currentTimestamp();
+void MQTTDebugPublish(const String &subtopic, const String &message,
+                      bool retain = false);
+void publishDebugStatusAck();
+void publishDebugEnableStates();
+bool parseDebugTogglePayload(const String &payload);
+void persistTelnetDebugPreference();
+
 // Project headers that require the struct definitions
 #include "Debug.h"
 #include "MQTTConfig.h"
@@ -225,9 +236,10 @@ bool gEnableEcodanSerialDebug = false;
 // MQTT debug channel toggle (publishes under [base]/Debug/* when enabled)
 bool gEnableMQTTDebug = false;
 
-// Forward declarations for MQTT debug helpers
-String currentTimestamp();
-void MQTTDebugPublish(const String &subtopic, const String &message, bool retain = false);
+// Telnet server runtime control (allows MQTT to start/stop the listener)
+bool gRequestedTelnetDebug = true; // desired Telnet state exposed via MQTT/config
+bool gEnableTelnetDebug = false;   // tracks whether the server is currently running
+bool gLittleFSMounted = false;
 
 // Cascade-specific variables
 bool cascadeMode = false;
@@ -319,6 +331,7 @@ void saveConfig(void);
 void initializeWifiManager(void);
 void setupTelnet(void);
 void startTelnet(void);
+void stopTelnet(void);
 void RecalculateMQTTTopics(void);
 void RecalculateMQTT2Topics(void);
 void initializeMQTTClient1(void);
@@ -425,6 +438,7 @@ void setup() {
 
   // Load configuration
   readSettingsFromConfig();
+  loadOutdoorSourceSettingsFromCompCurve();
 
   // Check if cascade mode is enabled
   cascadeMode = mqttSettings.cascadeEnabled;
@@ -443,7 +457,11 @@ void setup() {
   }
 
   setupTelnet();
-  startTelnet();
+  if (gRequestedTelnetDebug) {
+    startTelnet();
+  } else {
+    gEnableTelnetDebug = false;
+  }
 
   MQTTClient1.setBufferSize(2048);
   MQTTClient2.setBufferSize(2048);
@@ -497,7 +515,9 @@ void loop() {
   MELCloudQueryReplyEngine();
   MQTTClient1.loop();
   MQTTClient2.loop();
-  TelnetServer.loop();
+  if (gEnableTelnetDebug) {
+    TelnetServer.loop();
+  }
 
   if (Flags::CascadeActive()) {
     // In cascade mode, process network
@@ -684,6 +704,85 @@ void MQTTDebugPublish(const String &subtopic, const String &message, bool retain
   String topic2 = MQTT_2_DEBUG + String("/") + subtopic;
   if (MQTTClient2.connected()) {
     MQTTClient2.publish(topic2.c_str(), payload.c_str(), retain);
+  }
+}
+
+bool parseDebugTogglePayload(const String &payload) {
+  String normalized = payload;
+  normalized.trim();
+  normalized.toLowerCase();
+  return (normalized == "true" || normalized == "on" || normalized == "1" ||
+          normalized == "enable");
+}
+
+void persistTelnetDebugPreference() {
+  if (!gLittleFSMounted) {
+    return;
+  }
+  if (!LittleFS.exists("/config.json")) {
+    return;
+  }
+
+  File configFile = LittleFS.open("/config.json", "r");
+  if (!configFile) {
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, configFile);
+  configFile.close();
+  if (err) {
+    return;
+  }
+
+  doc["debug_enable_telnet"] = gRequestedTelnetDebug;
+
+  configFile = LittleFS.open("/config.json", "w");
+  if (!configFile) {
+    return;
+  }
+
+  serializeJson(doc, configFile);
+  configFile.close();
+}
+
+void publishDebugEnableStates() {
+  const char *mqttPayload = gEnableMQTTDebug ? "true" : "false";
+  const char *serialPayload = gEnableEcodanSerialDebug ? "true" : "false";
+  const char *telnetPayload = gRequestedTelnetDebug ? "true" : "false";
+
+  if (MQTTClient1.connected()) {
+    MQTTClient1.publish(MQTT_DEBUG_ENABLE.c_str(), mqttPayload, true);
+    MQTTClient1.publish(MQTT_DEBUG_ENABLE_SERIAL.c_str(), serialPayload, true);
+    MQTTClient1.publish(MQTT_DEBUG_ENABLE_TELNET.c_str(), telnetPayload, true);
+  }
+
+  if (MQTTClient2.connected()) {
+    MQTTClient2.publish(MQTT_2_DEBUG_ENABLE.c_str(), mqttPayload, true);
+    MQTTClient2.publish(MQTT_2_DEBUG_ENABLE_SERIAL.c_str(), serialPayload, true);
+    MQTTClient2.publish(MQTT_2_DEBUG_ENABLE_TELNET.c_str(), telnetPayload, true);
+  }
+}
+
+void publishDebugStatusAck() {
+  JsonDocument ack;
+  ack["ts"] = currentTimestamp();
+  ack["mqtt"] = gEnableMQTTDebug;
+  ack["serial"] = gEnableEcodanSerialDebug;
+  ack["telnet"] = gEnableTelnetDebug;
+  ack["telnetRequested"] = gRequestedTelnetDebug;
+  ack["enabled"] = gEnableMQTTDebug; // backwards compatibility
+
+  String out;
+  serializeJson(ack, out);
+
+  if (MQTTClient1.connected()) {
+    String statusTopic = MQTT_DEBUG + "/Status";
+    MQTTClient1.publish(statusTopic.c_str(), out.c_str(), true);
+  }
+  if (MQTTClient2.connected()) {
+    String statusTopic = MQTT_2_DEBUG + "/Status";
+    MQTTClient2.publish(statusTopic.c_str(), out.c_str(), true);
   }
 }
 
@@ -981,21 +1080,49 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
     }
   }
 
-  // Toggle MQTT debug channel via [base]/Debug/Enable (or secondary base)
+  // Toggle debug channels via [base]/Debug/Enable/{MQTT|Serial|Telnet}
   if (Topic == MQTT_DEBUG_ENABLE || Topic == MQTT_2_DEBUG_ENABLE) {
-    String p = Payload;
-    p.toLowerCase();
-    bool enable = (p == "true" || p == "on" || p == "1");
-    gEnableMQTTDebug = enable;
-    // Acknowledge by publishing status under primary debug channel
-    JsonDocument ack;
-    ack["ts"] = currentTimestamp();
-    ack["enabled"] = gEnableMQTTDebug;
-    String out;
-    serializeJson(ack, out);
-    if (MQTTClient1.connected()) {
-      String statusTopic = MQTT_DEBUG + "/Status";
-      MQTTClient1.publish(statusTopic.c_str(), out.c_str(), true);
+    bool enable = parseDebugTogglePayload(Payload);
+    if (enable != gEnableMQTTDebug) {
+      gEnableMQTTDebug = enable;
+      //publishDebugEnableStates();
+    }
+    publishDebugStatusAck();
+    return;
+  }
+
+  if (Topic == MQTT_DEBUG_ENABLE_SERIAL || Topic == MQTT_2_DEBUG_ENABLE_SERIAL) {
+    bool enable = parseDebugTogglePayload(Payload);
+    if (enable != gEnableEcodanSerialDebug) {
+      gEnableEcodanSerialDebug = enable;
+      //publishDebugEnableStates();
+    }
+    publishDebugStatusAck();
+    return;
+  }
+
+  if (Topic == MQTT_DEBUG_ENABLE_TELNET || Topic == MQTT_2_DEBUG_ENABLE_TELNET) {
+    bool requested = parseDebugTogglePayload(Payload);
+    bool previousRequested = gRequestedTelnetDebug;
+    bool previousActual = gEnableTelnetDebug;
+
+    gRequestedTelnetDebug = requested;
+
+    if (requested && !gEnableTelnetDebug) {
+      startTelnet();
+    } else if (!requested && gEnableTelnetDebug) {
+      stopTelnet();
+    }
+
+    bool requestChanged = (previousRequested != gRequestedTelnetDebug);
+    bool actualChanged = (previousActual != gEnableTelnetDebug);
+
+    if (requestChanged) {
+      //publishDebugEnableStates();
+      persistTelnetDebugPreference();
+    }
+    if (requestChanged || actualChanged) {
+      publishDebugStatusAck();
     }
     return;
   }
@@ -1364,7 +1491,10 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
       }
       // Local or Remote Outdoor Temperature Measurement (Bool)
       if (doc["use_local_outdoor"].is<bool>()) {
-        unitSettings.use_local_outdoor = doc["use_local_outdoor"];
+        unitSettings.use_local_outdoor = doc["use_local_outdoor"].as<bool>();
+        if (persistUseLocalOutdoor(unitSettings.use_local_outdoor)) {
+          shouldSaveConfig = true;
+        }
       }
       // Adjustments Pre or Post WC Calculation (Float)
       float z1_manual_offset = doc["zone1"]["manual_offset"]; //
@@ -1388,9 +1518,10 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
       float z2_wind_offset = doc["zone2"]["wind_offset"]; //
       if (z2_wind_offset) {
         unitSettings.z2_wind_offset = z2_wind_offset; } // Post Calcuation Zone2 Wind Factor +/- Offset
-      float cloud_outdoor = doc["cloud_outdoor"]; //
-      if (cloud_outdoor) {
-        unitSettings.cloud_outdoor = cloud_outdoor; }  // Temperature Provided by a remote or cloud source when use_local_outdoor = False
+      JsonVariant cloud_outdoor_variant = doc["cloud_outdoor"]; //
+      if (!cloud_outdoor_variant.isNull()) {
+        unitSettings.cloud_outdoor = cloud_outdoor_variant.as<float>();
+      }  // Temperature Provided by a remote or cloud source when use_local_outdoor = False
       CalculateCompCurve(); // Recalculate after modification
     }
   }
@@ -1453,6 +1584,8 @@ void ModifyCompCurveState(int Zone, bool Active) {
   shouldSaveConfig = true;                                  // Write the data to onboard JSON file so if device reboots it is saved
 }
 
+#include "CompCurvePersistence.inc"
+
 void syncCurrentTime() {
   // Update the ESP clock from the FTC
   time_t epochTime = mktime(&HeatPump.Status.DateTimeStamp); // Convert to epoch
@@ -1496,20 +1629,24 @@ void setupTelnet() {
 
 void startTelnet() {
   DEBUG_PRINT(F("Telnet: "));
+  bool started = false;
 #ifdef ARDUINO_WT32_ETH01
-  if (TelnetServer.begin(23, false)) {
+  started = TelnetServer.begin(23, false);
 #else
-  if (TelnetServer.begin()) {
+  started = TelnetServer.begin();
 #endif
+  if (started) {
     DEBUG_PRINTLN(F("Telnet Running"));
   } else {
     DEBUG_PRINTLN(F("Telnet Error"));
   }
+  gEnableTelnetDebug = started;
 }
 
 void stopTelnet() {
   DEBUG_PRINTLN(F("Stopping Telnet"));
   TelnetServer.stop();
+  gEnableTelnetDebug = false;
 }
 
 void onTelnetConnect(String ip) {
@@ -2131,6 +2268,3 @@ void onEvent(arduino_event_id_t event) {
   }
 }
 #endif
-
-
-

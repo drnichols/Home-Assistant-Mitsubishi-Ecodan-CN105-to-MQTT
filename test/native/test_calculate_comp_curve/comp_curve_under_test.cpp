@@ -11,3 +11,4 @@
 #endif
 
 #include "../../../src/CalculateCompCurve.inc"
+#include "../../../src/CompCurvePersistence.inc"

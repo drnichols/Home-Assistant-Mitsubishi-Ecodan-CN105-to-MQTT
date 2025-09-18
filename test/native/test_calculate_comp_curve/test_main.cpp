@@ -8,6 +8,8 @@ void setUp(void) { TestSupport::ResetEnvironment(); }
 void tearDown(void) {}
 
 extern void CalculateCompCurve();
+extern void loadOutdoorSourceSettingsFromCompCurve();
+extern bool persistUseLocalOutdoor(bool newValue);
 
 namespace {
 const char* kSampleCompCurve = R"JSON({
@@ -209,6 +211,34 @@ void test_calc_comp_curve_plus10(void) {
   TEST_ASSERT_EQUAL(2, HeatPump.lastSetpoint.zone);
 }
 
+void test_loads_outdoor_settings_from_compcurve(void) {
+  unitSettings.CompCurve = String("{\"use_local_outdoor\":false,\"cloud_outdoor\":12.5}");
+  unitSettings.use_local_outdoor = true;
+  unitSettings.cloud_outdoor = 0;
+
+  loadOutdoorSourceSettingsFromCompCurve();
+
+  TEST_ASSERT_FALSE(unitSettings.use_local_outdoor);
+  TEST_ASSERT_EQUAL_FLOAT(12.5f, unitSettings.cloud_outdoor);
+}
+
+void test_persist_use_local_outdoor_updates_document(void) {
+  unitSettings.CompCurve = String("{\"base\":{}}\n");
+
+  bool changed = persistUseLocalOutdoor(false);
+  TEST_ASSERT_TRUE(changed);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        unitSettings.CompCurve.str().find("\"use_local_outdoor\":false"));
+
+  changed = persistUseLocalOutdoor(false);
+  TEST_ASSERT_FALSE(changed);
+
+  changed = persistUseLocalOutdoor(true);
+  TEST_ASSERT_TRUE(changed);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        unitSettings.CompCurve.str().find("\"use_local_outdoor\":true"));
+}
+
 void test_calc_comp_curve_mid(void) {
   unitSettings.CompCurve = String(kSampleCompCurve);
   unitSettings.use_local_outdoor = false;
@@ -285,5 +315,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_calc_comp_curve_abovemax);
   RUN_TEST(test_calc_comp_curve_minus10);
   RUN_TEST(test_calc_comp_curve_plus10);
+  RUN_TEST(test_loads_outdoor_settings_from_compcurve);
+  RUN_TEST(test_persist_use_local_outdoor_updates_document);
   return UNITY_END();
 }

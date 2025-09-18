@@ -72,6 +72,19 @@ class String {
     return to_copy;
   }
 
+  size_t write(uint8_t value) {
+    data_.push_back(static_cast<char>(value));
+    resetReader();
+    return 1;
+  }
+
+  size_t write(const uint8_t* buffer, size_t length) {
+    if (!buffer || length == 0) return 0;
+    data_.append(reinterpret_cast<const char*>(buffer), length);
+    resetReader();
+    return length;
+  }
+
   void resetReader() { read_pos_ = 0; }
 
  private:

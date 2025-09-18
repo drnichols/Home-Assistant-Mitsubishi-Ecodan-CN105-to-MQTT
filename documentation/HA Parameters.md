@@ -11,6 +11,15 @@
 |  Server Control Mode | On/Off  | Server Control Mode is required to control the Prohibits over this protocol, entering Server Control Mode will ignore any schedules for prohibits in the FTC. A globe symbol appears on your Main controller |
 |  Flow Thermostats | On/Off  | You must be in a Flow control Mode to change flow thermostats, current temperature can be obtained from the sensors |
 
+# Debug
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `[base]/Debug/Enable/MQTT` | `true` / `false` | Mirrors MQTT debug messages to `[base]/Debug/*` when enabled. |
+| `[base]/Debug/Enable/Serial` | `true` / `false` | Toggles CN105 serial traffic logging to USB Serial and Telnet. |
+| `[base]/Debug/Enable/Telnet` | `true` / `false` | Starts or stops the Telnet log server used for runtime diagnostics. |
+
+Telnet enable requests persist across restarts via the `debug_enable_telnet` flag in `/config.json`. Runtime acks on `[base]/Debug/Status` now expose `telnet` (current state) and `telnetRequested` (desired state) fields.
+
 # Sensors
 | Name | Unit      | Description of Function      |
 |-------|------------------|----------------|
