@@ -430,6 +430,7 @@ void ECODANDECODER::Process0x06(uint8_t *Buffer, EcodanStatus *Status) {
 
 void ECODANDECODER::Process0x07(uint8_t *Buffer, EcodanStatus *Status) {
   uint8_t InputPower, OutputPower;
+  uint16_t EnergyConsumedIncreasing;
 
   for (int i = 1; i < 16; i++) {
     Array0x07[i] = Buffer[i];
@@ -437,9 +438,11 @@ void ECODANDECODER::Process0x07(uint8_t *Buffer, EcodanStatus *Status) {
 
   InputPower = Buffer[4];
   OutputPower = Buffer[6];
+  EnergyConsumedIncreasing = ExtractUInt16(Buffer,11) / 10.0f;
 
   Status->InputPower = InputPower;
   Status->OutputPower = OutputPower;
+  Status->EnergyConsumedIncreasing = EnergyConsumedIncreasing;
 }
 
 
@@ -489,7 +492,11 @@ void ECODANDECODER::Process0x0B(uint8_t *Buffer, EcodanStatus *Status) {
     Array0x0b[i] = Buffer[i];
   }
 
-  fZone1 = ((float)ExtractUInt16(Buffer, 1) / 100);
+  if (Buffer[1] != 0xf0) {  // Extract if zone connected (not default value)
+    fZone1 = ((float)ExtractUInt16(Buffer, 1) / 100);
+  } else {
+    fZone1 = 0;
+  }
   if (Buffer[3] != 0xf0) {  // Extract if zone connected (not default value)
     fZone2 = ((float)ExtractUInt16(Buffer, 3) / 100);
   } else {

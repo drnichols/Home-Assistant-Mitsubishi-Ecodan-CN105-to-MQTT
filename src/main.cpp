@@ -49,7 +49,7 @@
 #include "Flags.h"
 // Project headers below will be included after struct definitions
 
-String FirmwareVersion = "6.4.11-CASCADE";
+String FirmwareVersion = "6.4.12-CASCADE";
 
 // Pin definitions (same as original)
 #ifdef ESP8266
@@ -1262,40 +1262,25 @@ void MQTTonData(char *topic, byte *payload, unsigned int length) {
     HeatPump.Status.HotWaterSetpoint = Payload.toFloat();
   }
 
-  if ((Topic == MQTTCommandHotwaterNormalBoost) ||
-      (Topic == MQTTCommand2HotwaterNormalBoost)) {
+if ((Topic == MQTTCommandHotwaterNormalBoost) || (Topic == MQTTCommand2HotwaterNormalBoost)) {
     MQTTWriteReceived("MQTT Set Normal DHW Boost", 16);
-    if (Payload.toInt() == 1) {
-      PreHWBoostSvrCtrlMode =
-          HeatPump.Status.SvrControlMode; // Record the Server Control Mode when
-                                          // Entering Boost Only
-      if (HeatPump.Status.ProhibitDHW ==
-          0) { // To boost, must be at transition of On > Off, so if current
-               // Prohibit Status if off first Enter SCM with Prohibit On to
-               // shortly create a transition
-        HeatPump.SetSvrControlMode(Payload.toInt(), Payload.toInt(),
-                                   HeatPump.Status.ProhibitHeatingZ1,
-                                   HeatPump.Status.ProhibitCoolingZ1,
-                                   HeatPump.Status.ProhibitHeatingZ2,
-                                   HeatPump.Status.ProhibitCoolingZ2);
+    if (Payload.toInt() == 1) {                                // Turn ON
+      PreHWBoostSvrCtrlMode = HeatPump.Status.SvrControlMode;  // Record the Server Control Mode when Entering Boost Only
+      if (HeatPump.Status.ProhibitDHW == 0) {                  // To boost, must be at transition of On > Off, so if current Prohibit Status if off first Enter SCM with Prohibit On to shortly create a transition
+        HeatPump.SetSvrControlMode(Payload.toInt(), Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
       }
+      HeatPump.SetSvrControlMode(Payload.toInt(), 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
+      HeatPump.Status.SvrControlMode = 1;  // Server Control Mode Enables for this mode
+    } else if (Payload.toInt() == 0) {     // Turn OFF
+      HeatPump.SetSvrControlMode(PreHWBoostSvrCtrlMode, 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
+      HeatPump.Status.SvrControlMode = PreHWBoostSvrCtrlMode;  // Server Control Mode is now Set to Status before Switch Toggle
     }
-    HeatPump.SetSvrControlMode(
-        Payload.toInt(), 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1,
-        HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2,
-        HeatPump.Status.ProhibitCoolingZ2);
-    if (PreHWBoostSvrCtrlMode == 0) {
-      HeatPump.Status.SvrControlMode = Payload.toInt();
-    } // Server Control Mode is now Set to Input
-    HeatPump.Status.ProhibitDHW =
-        1 - Payload.toInt(); // Hot Water Boost is Inverse
-    NormalHWBoostOperating =
-        Payload.toInt(); // Hot Water Boost Operating is Active
-  }
 
-  // System Commands
-  if ((Topic == MQTTCommandSystemHolidayMode) ||
-      (Topic == MQTTCommand2SystemHolidayMode)) {
+    HeatPump.Status.ProhibitDHW = 1 - Payload.toInt();  // Hot Water Prohibit is Inverse of request
+    NormalHWBoostOperating = Payload.toInt();           // Hot Water Boost Operating is Active/Inactive
+
+  }
+  if ((Topic == MQTTCommandSystemHolidayMode) || (Topic == MQTTCommand2SystemHolidayMode)) {
     MQTTWriteReceived("MQTT Set Holiday Mode", 16);
     HeatPump.SetHolidayMode(Payload.toInt());
     HeatPump.Status.HolidayModeActive = Payload.toInt();
@@ -2196,17 +2181,14 @@ void EnergyReport(void) {
     doc[F("CTOTAL")] = round2(ctotal);
     doc[F("DTOTAL")] = round2(dtotal);
   }
-  if (!Flags::CascadeActive()) {
-    doc[F("HEAT_CoP")] = round2(heat_cop);
-  }
   if (!Flags::CascadeActive() && Flags::HasCooling()) {
     doc[F("COOL_CoP")] = round2(cool_cop);
   }
   if (!Flags::CascadeActive()) {
+    doc[F("HEAT_CoP")] = round2(heat_cop);
     doc[F("DHW_CoP")] = round2(dhw_cop);
-  }
-  if (!Flags::CascadeActive()) {
     doc[F("TOTAL_CoP")] = round2(total_cop);
+    doc[F("ConsumedTotalInc")] = HeatPump.Status.EnergyConsumedIncreasing;
   }
   doc[F("HB_ID")] = Heart_Value;
   serializeJson(doc, Buffer);
